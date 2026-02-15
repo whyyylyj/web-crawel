@@ -1,5 +1,7 @@
 # Network Capture Assistant（Chrome 扩展）
 
+[English](./README_EN.md) | 中文
+
 一个基于 Manifest V3 的网络请求捕获扩展，支持：
 
 - URL 正则过滤（支持多条规则及其 HTTP 方法过滤）
