@@ -18,6 +18,41 @@
   globalThis[CONTEXT_INIT_FLAG] = true;
   globalThis[INJECT_FLAG] = true;
 
+  // === 防御性检查：chrome 可用性 ===
+  function isChromeRuntimeAvailable() {
+    return typeof chrome !== 'undefined' &&
+           chrome.runtime &&
+           typeof chrome.runtime.sendMessage === 'function';
+  }
+
+  // === 捕获开关检查 ===
+  async function isCaptureEnabled() {
+    try {
+      if (!isChromeRuntimeAvailable()) {
+        return false;
+      }
+      const result = await chrome.storage.local.get({settings: {}});
+      return result.settings?.capture_enabled !== false;
+    } catch {
+      return false;
+    }
+  }
+
+  // 异步初始化：先检查捕获开关
+  (async function() {
+    const enabled = await isCaptureEnabled();
+    if (!enabled) {
+      console.log('[NetworkCapture Content] 捕获已禁用，跳过初始化');
+      return;
+    }
+
+    // 捕获已启用，继续执行原有逻辑
+    initContentScript();
+  })();
+
+  // 原有逻辑包装为函数
+  function initContentScript() {
+
   // 记录注入开始时间，用于调试
   const injectStartTime = performance.now();
   let injectAttempts = 0;
@@ -35,6 +70,65 @@
 
   function logError(...args) {
     console.error('[NetworkCapture Content]', ...args);
+  }
+
+  // 安全地发送消息到 background
+  function safeSendMessage(message, callback) {
+    if (contextInvalidated) {
+      return;
+    }
+
+    if (!chrome.runtime || !chrome.runtime.sendMessage) {
+      if (!invalidatedWarned) {
+        invalidatedWarned = true;
+        contextInvalidated = true;
+        logWarn('扩展上下文已失效 (chrome.runtime undefined)，请刷新页面。');
+      }
+      return;
+    }
+
+    try {
+      if (callback) {
+        chrome.runtime.sendMessage(message, (response) => {
+          if (chrome.runtime.lastError) {
+            const errorMsg = chrome.runtime.lastError.message;
+            if (errorMsg.includes('Extension context invalidated')) {
+              contextInvalidated = true;
+              if (!invalidatedWarned) {
+                invalidatedWarned = true;
+                logWarn('检测到扩展上下文失效，请刷新页面。');
+              }
+              return;
+            }
+            logError('发送消息失败:', errorMsg);
+          }
+          callback(response);
+        });
+      } else {
+        // 返回 Promise 版本
+        return chrome.runtime.sendMessage(message).catch((error) => {
+          if (error.message.includes('Extension context invalidated')) {
+            contextInvalidated = true;
+            if (!invalidatedWarned) {
+              invalidatedWarned = true;
+              logWarn('检测到扩展上下文失效，请刷新页面。');
+            }
+          } else {
+            logError('发送消息失败:', error.message);
+          }
+        });
+      }
+    } catch (error) {
+      if (error.message.includes('Extension context invalidated')) {
+        contextInvalidated = true;
+        if (!invalidatedWarned) {
+          invalidatedWarned = true;
+          logWarn('检测到扩展上下文失效，请刷新页面。');
+        }
+      } else {
+        logError('发送消息时发生异常:', error.message);
+      }
+    }
   }
 
   // 获取页面脚本 URL（扩展内部资源）
@@ -141,26 +235,30 @@
     logWarn('尝试使用 chrome.scripting API 注入页面脚本（最可靠的 CSP 绕过方案）...');
 
     // 请求 background 使用 scripting API 注入
-    chrome.runtime.sendMessage({
+    const promise = safeSendMessage({
       type: 'INJECT_PAGE_SCRIPT'
-    }).then((response) => {
-      if (response.ok) {
-        logInfo('已请求 background 使用 scripting API 注入页面脚本');
-        // 等待一段时间后验证是否成功
-        setTimeout(() => {
-          if (!globalThis[SUCCESS_FLAG]) {
-            logWarn('使用 scripting API 后仍未收到初始化消息，可能存在其他问题');
-            showFailureHelp();
-          }
-        }, 1000);
-      } else {
-        logError('请求 background 注入失败:', response.error);
-        showFailureHelp();
-      }
-    }).catch((error) => {
-      logError('发送注入请求到 background 失败:', error.message);
-      showFailureHelp();
     });
+
+    if (promise) {
+      promise.then((response) => {
+        if (response && response.ok) {
+          logInfo('已请求 background 使用 scripting API 注入页面脚本');
+          // 等待一段时间后验证是否成功
+          setTimeout(() => {
+            if (!globalThis[SUCCESS_FLAG]) {
+              logWarn('使用 scripting API 后仍未收到初始化消息，可能存在其他问题');
+              showFailureHelp();
+            }
+          }, 1000);
+        } else {
+          logError('请求 background 注入失败:', response ? response.error : '未知错误');
+          showFailureHelp();
+        }
+      }).catch((error) => {
+        logError('发送注入请求到 background 失败:', error.message);
+        showFailureHelp();
+      });
+    }
   }
 
   function showFailureHelp() {
@@ -178,12 +276,10 @@
     console.groupEnd();
 
     // 通知 background
-    chrome.runtime.sendMessage({
+    safeSendMessage({
       type: 'PAGE_SCRIPT_INJECT_FAILED',
       url: window.location.href,
       attempts: injectAttempts
-    }).catch(() => {
-      // 忽略错误
     });
   }
 
@@ -210,60 +306,40 @@
 
     // 发送消息到 background service worker
     // 确保包含 tabId 以便正确合并 webRequest 记录
-    try {
-      chrome.runtime.sendMessage({
-        type: 'CONTENT_NETWORK_EVENT',
-        payload: {
-          ...payload,
-          tabId: payload.tabId  // 如果 page script 已经包含 tabId 则使用
-        }
-      }, (response) => {
-        // 检查 extension context 是否失效
-        if (chrome.runtime.lastError) {
-          const errorMsg = chrome.runtime.lastError.message;
-          // 扩展上下文失效后停止继续转发，避免刷屏报错
-          if (errorMsg.includes('Extension context invalidated')) {
-            contextInvalidated = true;
-            if (!invalidatedWarned) {
-              invalidatedWarned = true;
-              logWarn('检测到扩展上下文失效，等待后台重注入脚本或刷新页面后恢复。');
-            }
-            return;
-          }
-          logError('发送消息到 background 失败:', errorMsg);
-        }
-        // 如果需要处理 response，在这里处理
-      });
-    } catch (error) {
-      // 捕获同步错误（如参数错误）
-      logError('发送消息时发生错误:', error.message);
-      if (String(error.message || '').includes('Extension context invalidated')) {
-        contextInvalidated = true;
+    safeSendMessage({
+      type: 'CONTENT_NETWORK_EVENT',
+      payload: {
+        ...payload,
+        tabId: payload.tabId  // 如果 page script 已经包含 tabId 则使用
       }
-    }
+    }, (response) => {
+      // 如果需要处理 response，在这里处理
+    });
   }
 
   window.addEventListener('message', handlePageMessage);
 
   // 监听来自 background 的消息
-  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (message?.type === 'PING_CONTENT_SCRIPT') {
-      sendResponse({
-        ok: true,
-        injected: globalThis[INJECT_FLAG],
-        pageScriptSuccess: globalThis[SUCCESS_FLAG],
-        injectAttempts: injectAttempts
-      });
-      return false;
-    }
+  if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage) {
+    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+      if (message?.type === 'PING_CONTENT_SCRIPT') {
+        sendResponse({
+          ok: true,
+          injected: globalThis[INJECT_FLAG],
+          pageScriptSuccess: globalThis[SUCCESS_FLAG],
+          injectAttempts: injectAttempts
+        });
+        return false;
+      }
 
-    if (message?.type === 'CONTENT_SCRIPT_REINJECTED') {
-      contextInvalidated = false;
-      invalidatedWarned = false;
-      sendResponse({ ok: true });
-      return false;
-    }
-  });
+      if (message?.type === 'CONTENT_SCRIPT_REINJECTED') {
+        contextInvalidated = false;
+        invalidatedWarned = false;
+        sendResponse({ ok: true });
+        return false;
+      }
+    });
+  }
 
   // 定期检查页面脚本状态（仅用于调试）
   if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
@@ -274,4 +350,5 @@
       }
     }, 30000); // 每 30 秒输出一次
   }
+  } // end of initContentScript
 })();

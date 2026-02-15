@@ -626,6 +626,11 @@ function isInjectableTabUrl(url) {
 }
 
 async function reinjectContentScripts() {
+  // 只在捕获开启时注入
+  if (!settings.capture_enabled) {
+    return;
+  }
+
   try {
     const tabs = await chrome.tabs.query({});
     const targets = tabs.filter((tab) => Number.isInteger(tab.id) && isInjectableTabUrl(tab.url));
@@ -1134,6 +1139,35 @@ chrome.runtime.onStartup.addListener(async () => {
 init().catch((error) => {
   stats.last_error = `初始化失败: ${error.message}`;
   logError(stats.last_error);
+});
+
+// tabs 监听：动态注入 content scripts（仅在捕获开启时）
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  // 只在页面加载完成时处理
+  if (changeInfo.status !== 'complete' || !tab.url) {
+    return;
+  }
+
+  // 只在捕获开启时注入
+  if (!settings.capture_enabled) {
+    return;
+  }
+
+  // 检查是否是可注入的 URL
+  if (!isInjectableTabUrl(tab.url)) {
+    return;
+  }
+
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      files: ['content/content.js']
+    });
+    logInfo(`动态注入 content script 到 tab ${tabId}: ${tab.url}`);
+  } catch (error) {
+    // 忽略注入失败（如受限页面）
+    logWarn(`动态注入 content script 失败 (tab=${tabId}): ${error.message}`);
+  }
 });
 
 // webRequest 监听
