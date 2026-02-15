@@ -40,7 +40,8 @@ chrome-network-capture-extension/
   "save_path": "",
   "capture_request_data": true,
   "capture_response_data": true,
-  "capture_performance_data": false
+  "capture_performance_data": false,
+  "max_body_length": 20000000
 }
 ```
 
@@ -85,4 +86,4 @@ Chrome 扩展全局快捷键由 Chrome 统一管理。请在：
 - **实时保存**：由于采用实时自动保存方案，可能会在短时间内产生大量小文件，建议通过“保存路径”将其分类到子文件夹，并合理配置过滤规则。
 - Chrome 扩展无法直接写任意本地绝对路径；`save_path` 实际是下载目录下子路径。
 - 某些跨域、二进制、流式响应可能无法完整读取 body。
-- 为防止内存占用过高，扩展会截断超长 body，并在本地仅保留最近一部分记录摘要。
+- 为防止内存占用过高，扩展会截断超长 body（可在设置中自定义限制，默认 20MB），并在本地仅保留最近一部分记录摘要。

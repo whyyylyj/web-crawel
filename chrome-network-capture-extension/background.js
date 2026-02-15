@@ -18,7 +18,8 @@ const DEFAULT_SETTINGS = {
   save_path: '',
   capture_request_data: true,
   capture_response_data: true,
-  capture_performance_data: false
+  capture_performance_data: false,
+  max_body_length: 20_000_000 // 默认 20MB (约 2000万字符)
 };
 
 const DEFAULT_STATS = {
@@ -147,21 +148,26 @@ function sanitizeSettings(raw = {}) {
     capture_performance_data:
       raw.capture_performance_data === undefined
         ? DEFAULT_SETTINGS.capture_performance_data
-        : Boolean(raw.capture_performance_data)
+        : Boolean(raw.capture_performance_data),
+    max_body_length:
+      raw.max_body_length === undefined
+        ? DEFAULT_SETTINGS.max_body_length
+        : Number(raw.max_body_length) || DEFAULT_SETTINGS.max_body_length
   };
 
   safe.url_filter_rules = normalizeUrlRules(raw.url_filter_rules, raw.url_filter_regex);
   return safe;
 }
 
-function clampText(value, max = MAX_BODY_LENGTH) {
+function clampText(value, max = null) {
+  const limit = typeof max === 'number' ? max : settings.max_body_length;
   if (typeof value !== 'string') {
     return value;
   }
-  if (value.length <= max) {
+  if (value.length <= limit) {
     return value;
   }
-  return `${value.slice(0, max)}\n...<TRUNCATED ${value.length - max} chars>`;
+  return `${value.slice(0, limit)}\n...<TRUNCATED ${value.length - limit} chars>`;
 }
 
 function normalizeUrl(rawUrl = '') {

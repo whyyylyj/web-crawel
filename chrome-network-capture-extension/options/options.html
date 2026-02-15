@@ -49,6 +49,12 @@
         <label class="switch"><input id="captureRequestData" type="checkbox" /> <span>请求数据</span></label>
         <label class="switch"><input id="captureResponseData" type="checkbox" /> <span>响应数据</span></label>
         <label class="switch"><input id="capturePerformanceData" type="checkbox" /> <span>性能数据（时延）</span></label>
+
+        <label class="field mt-10">
+          <span>最大 Body 限制 (字符数)</span>
+          <input id="maxBodyLength" type="number" step="1000" placeholder="默认 20,000,000" />
+          <small>防止内存溢出。20,000,000 约 20MB。超过此长度的内容将被截断。</small>
+        </label>
       </section>
 
       <section class="panel">

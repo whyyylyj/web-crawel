@@ -8,6 +8,7 @@ const captureEnabledEl = document.getElementById('captureEnabled');
 const captureRequestDataEl = document.getElementById('captureRequestData');
 const captureResponseDataEl = document.getElementById('captureResponseData');
 const capturePerformanceDataEl = document.getElementById('capturePerformanceData');
+const maxBodyLengthEl = document.getElementById('maxBodyLength');
 
 const ruleListEl = document.getElementById('ruleList');
 const ruleCountEl = document.getElementById('ruleCount');
@@ -64,7 +65,8 @@ function buildCurrentSettingsPayload() {
     save_path: savePathEl.value.trim(),
     capture_request_data: captureRequestDataEl.checked,
     capture_response_data: captureResponseDataEl.checked,
-    capture_performance_data: capturePerformanceDataEl.checked
+    capture_performance_data: capturePerformanceDataEl.checked,
+    max_body_length: Number(maxBodyLengthEl.value) || 20_000_000
   };
 }
 
@@ -422,6 +424,7 @@ function applyState(payload) {
   captureRequestDataEl.checked = Boolean(settings.capture_request_data);
   captureResponseDataEl.checked = Boolean(settings.capture_response_data);
   capturePerformanceDataEl.checked = Boolean(settings.capture_performance_data);
+  maxBodyLengthEl.value = settings.max_body_length || 20_000_000;
 
   renderRules();
 }
@@ -494,6 +497,7 @@ async function saveSettings() {
     captureRequestDataEl.checked = Boolean(savedSettings.capture_request_data);
     captureResponseDataEl.checked = Boolean(savedSettings.capture_response_data);
     capturePerformanceDataEl.checked = Boolean(savedSettings.capture_performance_data);
+    maxBodyLengthEl.value = savedSettings.max_body_length || 20_000_000;
     // 只更新规则验证状态，不重新渲染整个列表
     renderRules();
   }
@@ -550,7 +554,8 @@ function parseImportedSettings(text) {
       source.capture_request_data === undefined ? true : Boolean(source.capture_request_data),
     capture_response_data:
       source.capture_response_data === undefined ? true : Boolean(source.capture_response_data),
-    capture_performance_data: Boolean(source.capture_performance_data)
+    capture_performance_data: Boolean(source.capture_performance_data),
+    max_body_length: Number(source.max_body_length) || 20_000_000
   };
 }
 
