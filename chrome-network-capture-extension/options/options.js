@@ -4,7 +4,6 @@ const MAX_URL_RULES = 20;
 const HTTP_METHODS = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
 
 const savePathEl = document.getElementById('savePath');
-const captureEnabledEl = document.getElementById('captureEnabled');
 const captureRequestDataEl = document.getElementById('captureRequestData');
 const captureResponseDataEl = document.getElementById('captureResponseData');
 const capturePerformanceDataEl = document.getElementById('capturePerformanceData');
@@ -420,7 +419,6 @@ function applyState(payload) {
   currentRules = normalizeRules(settings.url_filter_rules);
 
   savePathEl.value = settings.save_path || '';
-  captureEnabledEl.checked = Boolean(settings.capture_enabled);
   captureRequestDataEl.checked = Boolean(settings.capture_request_data);
   captureResponseDataEl.checked = Boolean(settings.capture_response_data);
   capturePerformanceDataEl.checked = Boolean(settings.capture_performance_data);
@@ -493,7 +491,6 @@ async function saveSettings() {
     currentRules = normalizeRules(savedSettings.url_filter_rules);
     // 更新其他设置项的值，但不调用 renderRules() 以避免重绘
     savePathEl.value = savedSettings.save_path || '';
-    captureEnabledEl.checked = Boolean(savedSettings.capture_enabled);
     captureRequestDataEl.checked = Boolean(savedSettings.capture_request_data);
     captureResponseDataEl.checked = Boolean(savedSettings.capture_response_data);
     capturePerformanceDataEl.checked = Boolean(savedSettings.capture_performance_data);
@@ -562,7 +559,6 @@ function parseImportedSettings(text) {
 function applySettingsToForm(settings) {
   currentRules = normalizeRules(settings.url_filter_rules);
   savePathEl.value = settings.save_path || '';
-  captureEnabledEl.checked = Boolean(settings.capture_enabled);
   captureRequestDataEl.checked = Boolean(settings.capture_request_data);
   captureResponseDataEl.checked = Boolean(settings.capture_response_data);
   capturePerformanceDataEl.checked = Boolean(settings.capture_performance_data);
@@ -679,10 +675,6 @@ chrome.runtime.onMessage.addListener((message) => {
 async function initOptionsPage() {
   const stopped = await stopCaptureIfNeeded();
   await loadSettings();
-
-  captureEnabledEl.checked = false;
-  captureEnabledEl.disabled = true;
-  captureEnabledEl.title = '设置页不允许开启捕获，请在 Popup 中开启';
 
   if (stopped) {
     setStatus('进入设置页后已自动停止捕获。修改完成后请在 Popup 开启捕获。', 'warn');
