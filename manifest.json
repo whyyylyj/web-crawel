@@ -1,0 +1,58 @@
+{
+  "manifest_version": 3,
+  "name": "Network Capture Assistant",
+  "description": "按规则捕获浏览器网络请求，并实时保存为 JSON 文件。",
+  "version": "1.0.0",
+  "minimum_chrome_version": "114",
+  "permissions": [
+    "webRequest",
+    "storage",
+    "downloads",
+    "commands",
+    "tabs",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Network Capture",
+    "default_popup": "popup/popup.html"
+  },
+  "options_page": "options/options.html",
+  "commands": {
+    "capture-toggle": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+K",
+        "mac": "Command+Shift+K"
+      },
+      "description": "切换网络捕获开关"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content/content.js"
+      ],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["content/page-script.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}

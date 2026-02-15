@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Network Capture 设置</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="page">
+      <header>
+        <h1>Network Capture 设置</h1>
+        <p>配置多条 URL 规则（OR 逻辑）、采集类型、导出目录和快捷键。</p>
+      </header>
+
+      <section class="panel">
+        <h2>基础设置</h2>
+
+        <label class="field">
+          <span>保存路径（相对下载目录）</span>
+          <input id="savePath" type="text" placeholder="例如：network-capture/logs" />
+          <small>Chrome 扩展不能写任意本地目录，这里是下载目录下的子路径。</small>
+        </label>
+
+        <label class="switch">
+          <input id="captureEnabled" type="checkbox" />
+          <span>启用捕获</span>
+        </label>
+      </section>
+
+      <section class="panel">
+        <div class="rules-header">
+          <h2>URL 过滤规则（OR）</h2>
+          <p>已配置 <strong id="ruleCount">0</strong> / 20 条</p>
+        </div>
+
+        <div class="rule-adder">
+          <input id="newRuleInput" type="text" placeholder="例如：api\\.example\\.com/v1" />
+          <button id="addRuleBtn" class="btn primary" type="button">添加规则</button>
+        </div>
+        <p class="hint">匹配任意一条启用规则即触发捕获。留空或全部禁用时，默认不过滤。</p>
+        <p class="hint">可在规则中指定 HTTP 方法进行过滤，不选则匹配所有方法。</p>
+
+        <ul id="ruleList" class="rule-list"></ul>
+      </section>
+
+      <section class="panel">
+        <h2>采集数据类型</h2>
+        <label class="switch"><input id="captureRequestData" type="checkbox" /> <span>请求数据</span></label>
+        <label class="switch"><input id="captureResponseData" type="checkbox" /> <span>响应数据</span></label>
+        <label class="switch"><input id="capturePerformanceData" type="checkbox" /> <span>性能数据（时延）</span></label>
+      </section>
+
+      <section class="panel">
+        <h2>快捷键</h2>
+        <p class="hint">默认切换捕获：<code>Ctrl+Shift+K</code>（macOS: <code>Command+Shift+K</code>）</p>
+        <p class="hint">Chrome 的全局快捷键需在系统页面修改。</p>
+        <button id="openShortcuts" class="btn ghost" type="button">打开快捷键配置页面</button>
+      </section>
+
+      <section class="panel">
+        <h2>设置导入导出</h2>
+        <p class="hint">可将当前设置导出为 JSON，或从 JSON 文件导入后直接应用。</p>
+        <div class="actions">
+          <button id="exportSettingsBtn" class="btn" type="button">导出设置</button>
+          <button id="importSettingsBtn" class="btn ghost" type="button">导入设置</button>
+          <input id="importSettingsFile" type="file" accept=".json,application/json" hidden />
+        </div>
+      </section>
+
+      <section class="actions">
+        <button id="stopCaptureBtn" class="btn ghost" type="button">先停止捕获</button>
+        <button id="saveBtn" class="btn primary" type="button">保存设置</button>
+        <button id="reloadBtn" class="btn" type="button">重新加载</button>
+      </section>
+
+      <p id="status" class="status"></p>
+    </main>
+
+    <script src="options.js"></script>
+  </body>
+</html>

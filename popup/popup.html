@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Network Capture</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header class="header">
+        <h1>网络请求捕获</h1>
+        <p id="statusText" class="status status-off">状态：未开启</p>
+      </header>
+
+      <section class="card">
+        <div class="row">
+          <span>生效规则数</span>
+          <code id="ruleCountValue">0</code>
+        </div>
+        <div class="row">
+          <span>规则预览</span>
+          <code id="rulePreviewValue">(未设置)</code>
+        </div>
+        <div class="row">
+          <span>保存路径</span>
+          <code id="savePathValue">下载目录根路径</code>
+        </div>
+      </section>
+
+      <section class="card stats">
+        <h2>实时统计</h2>
+        <div class="stats-grid">
+          <div class="item"><span>总请求</span><strong id="totalRequests">0</strong></div>
+          <div class="item"><span>匹配请求</span><strong id="matchedRequests">0</strong></div>
+          <div class="item"><span>已记录</span><strong id="capturedRequests">0</strong></div>
+          <div class="item"><span>错误数</span><strong id="errorCount">0</strong></div>
+        </div>
+        <p class="muted" id="lastCapture">最近捕获：-</p>
+      </section>
+
+      <section class="actions">
+        <button id="toggleBtn" class="btn primary">开启捕获</button>
+        <button id="clearBtn" class="btn danger">清空数据</button>
+        <button id="optionsBtn" class="btn ghost">打开设置</button>
+      </section>
+
+      <p id="message" class="message"></p>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>

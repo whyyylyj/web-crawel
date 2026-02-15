@@ -1,0 +1,14 @@
+{
+  "name": "network-capture-extension-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Playwright E2E tests for Network Capture Chrome Extension",
+  "scripts": {
+    "test": "playwright test -c playwright.config.js",
+    "test:headed": "playwright test -c playwright.config.js --headed",
+    "install:browsers": "playwright install chromium"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.54.0"
+  }
+}

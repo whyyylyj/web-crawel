@@ -1,0 +1,290 @@
+:root {
+  --bg: #f5f8ff;
+  --panel: #ffffff;
+  --text: #1b2230;
+  --muted: #627084;
+  --border: #d8e2f0;
+  --primary: #1660ff;
+  --ok: #128a4a;
+  --warn: #b26a00;
+  --error: #d83b50;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  background:
+    radial-gradient(circle at 10% 0%, #e8f0ff 0%, transparent 45%),
+    radial-gradient(circle at 90% 20%, #fef2dc 0%, transparent 42%),
+    var(--bg);
+  color: var(--text);
+}
+
+.page {
+  max-width: 940px;
+  margin: 24px auto;
+  padding: 0 16px 20px;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 28px;
+}
+
+header p {
+  color: var(--muted);
+  margin-top: 8px;
+}
+
+.panel {
+  margin-top: 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.panel h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.rules-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.rules-header p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.field span {
+  font-weight: 600;
+}
+
+.field input,
+.rule-adder input,
+.rule-pattern-input {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+  background: #fff;
+}
+
+.field small,
+.hint {
+  color: var(--muted);
+  margin: 0;
+}
+
+.rule-adder {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.rule-list {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rule-item {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px;
+  background: #fbfdff;
+}
+
+.rule-item.rule-disabled {
+  background: #f6f8fc;
+  opacity: 0.78;
+}
+
+.rule-main {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.rule-enable {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #2d3748;
+}
+
+.rule-delete {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  background: #ffe9ec;
+  color: #9b1f34;
+}
+
+.rule-meta {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.badge.ok {
+  background: #e7f7ee;
+  color: var(--ok);
+}
+
+.badge.error {
+  background: #fdebed;
+  color: var(--error);
+}
+
+.empty-state {
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 13px;
+  background: #fafcff;
+}
+
+.rule-methods {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.rule-methods-label {
+  font-size: 12px;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.rule-methods-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.method-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+
+.method-checkbox input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: var(--primary);
+}
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.actions {
+  margin-top: 16px;
+  display: flex;
+  gap: 10px;
+}
+
+.btn {
+  border: none;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 14px;
+  cursor: pointer;
+  background: #e7edff;
+  color: #1f3261;
+}
+
+.btn.primary {
+  background: var(--primary);
+  color: #fff;
+}
+
+.btn.ghost {
+  background: #fff;
+  border: 1px solid var(--border);
+}
+
+.status {
+  margin-top: 12px;
+  min-height: 18px;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.status.ok {
+  color: var(--ok);
+}
+
+.status.error {
+  color: var(--error);
+}
+
+.status.warn {
+  color: var(--warn);
+}
+
+@media (max-width: 760px) {
+  .page {
+    margin: 12px auto;
+  }
+
+  header h1 {
+    font-size: 22px;
+  }
+
+  .rule-adder,
+  .rule-main {
+    grid-template-columns: 1fr;
+  }
+
+  .rule-delete {
+    width: 100%;
+  }
+}
