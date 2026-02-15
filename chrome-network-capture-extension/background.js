@@ -176,7 +176,7 @@ function normalizeUrl(rawUrl = '') {
     // 为了更稳定匹配，去掉 hash
     url.hash = '';
     return url.toString();
-  } catch {
+  } catch (err) {
     // 非标准 URL（如 data:）直接去掉 hash 部分
     return String(rawUrl).split('#')[0];
   }
@@ -268,7 +268,7 @@ function getUrlMatchMeta(rawUrl, method = 'GET') {
       rule_pattern: matchedRule.pattern,
       methods: matchedRule.methods
     };
-  } catch {
+  } catch (err) {
     return {
       matched: false,
       mode: 'rule',
@@ -338,7 +338,7 @@ function getUrlFileHint(rawUrl = '') {
     const host = sanitizeFilenameSegment(url.hostname, 28);
     const path = sanitizeFilenameSegment(url.pathname.replace(/\//g, '_'), 28);
     return `${host}_${path || 'root'}`;
-  } catch {
+  } catch (err) {
     return sanitizeFilenameSegment(rawUrl, 44);
   }
 }
@@ -351,7 +351,7 @@ function resolveCapturedUrl(rawUrl, sender) {
 
   try {
     return new URL(value).toString();
-  } catch {
+  } catch (err) {
     // ignore
   }
 
@@ -363,7 +363,7 @@ function resolveCapturedUrl(rawUrl, sender) {
 
     try {
       return new URL(value, base).toString();
-    } catch {
+    } catch (err) {
       // try next base
     }
   }

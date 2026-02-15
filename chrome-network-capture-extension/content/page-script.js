@@ -25,7 +25,7 @@
       try {
         // 尝试将 JSON 对象转换为字符串
         return String(text);
-      } catch {
+      } catch (err) {
         return '[unconvertible value]';
       }
     }

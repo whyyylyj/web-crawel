@@ -529,7 +529,7 @@ function parseImportedSettings(text) {
   let parsed;
   try {
     parsed = JSON.parse(text);
-  } catch {
+  } catch (err) {
     throw new Error('导入失败：JSON 格式错误');
   }
 

@@ -33,7 +33,7 @@
       }
       const result = await chrome.storage.local.get({settings: {}});
       return result.settings?.capture_enabled !== false;
-    } catch {
+    } catch (err) {
       return false;
     }
   }
@@ -128,6 +128,7 @@
       } else {
         logError('发送消息时发生异常:', error.message);
       }
+      return Promise.reject(error);
     }
   }
 
@@ -135,7 +136,7 @@
   function getPageScriptUrl() {
     try {
       return chrome.runtime.getURL('content/page-script.js');
-    } catch {
+    } catch (err) {
       return '';
     }
   }
