@@ -238,19 +238,18 @@ downloadScriptBtn.addEventListener('click', async () => {
     }
 
     const { settings } = res.payload;
-    const today = new Date().toISOString().split('T')[0];
     const platform = await detectPlatform();
     const savePath = settings.save_path || '';  // 获取用户配置的保存路径
 
     let scriptContent, scriptFilename;
 
     if (platform === 'windows') {
-      scriptContent = generateWindowsScript(today, savePath);
-      scriptFilename = `compress-${today}.bat`;
+      scriptContent = generateWindowsScript(savePath);
+      scriptFilename = 'network-capture-compress.bat';
     } else {
       // macOS 或 Linux
-      scriptContent = generateUnixScript(today, savePath);
-      scriptFilename = `compress-${today}.sh`;
+      scriptContent = generateUnixScript(savePath);
+      scriptFilename = 'network-capture-compress.sh';
     }
 
     // 创建脚本 Blob 并下载
@@ -269,7 +268,7 @@ downloadScriptBtn.addEventListener('click', async () => {
     // 清理 URL
     setTimeout(() => URL.revokeObjectURL(scriptUrl), 1000);
 
-    setMessage(`已下载压缩脚本，请双击运行（${scriptFilename}）`, false);
+    setMessage(`已下载压缩脚本：${scriptFilename}（每天通用，无需重复下载）`, false);
   } catch (error) {
     setMessage(error.message, true);
   }
@@ -359,18 +358,61 @@ async function detectPlatform() {
 }
 
 // 辅助函数：生成 Windows 批处理脚本
-function generateWindowsScript(today, savePath) {
-  // 构建完整的源目录路径
-  const relativePath = savePath ? `${savePath}\\${today}` : today;
+function generateWindowsScript(savePath) {
+  // 路径模板中的日期部分会在运行时动态获取
+  const relativePathTemplate = savePath
+    ? `${savePath}\\%TODAY%`
+    : '%TODAY%';
 
   return `@echo off
 chcp 65001 > nul
-set "ZIP_FILE=network-capture-${today}.zip"
-set "SOURCE_DIR=%USERPROFILE%\\Downloads\\${relativePath}"
+
+set "TODAY="
+set "PS_CMD="
+
+rem 优先使用 pwsh / powershell 获取日期，兼容较新系统
+where pwsh > nul 2>&1
+if not errorlevel 1 set "PS_CMD=pwsh"
+if not defined PS_CMD (
+    where powershell > nul 2>&1
+    if not errorlevel 1 set "PS_CMD=powershell"
+)
+
+if defined PS_CMD (
+    for /f %%I in ('%PS_CMD% -NoProfile -Command "(Get-Date).ToString('yyyy-MM-dd')" 2^>nul') do set "TODAY=%%I"
+)
+
+rem 降级到 wmic（旧系统可用）
+if not defined TODAY (
+    for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value 2^>nul') do set datetime=%%I
+    if defined datetime set "TODAY=%datetime:~0,4%-%datetime:~4,2%-%datetime:~6,2%"
+)
+
+rem 再降级为手动输入，避免脚本不可用
+if not defined TODAY (
+    echo [警告] 无法自动获取日期，请手动输入（格式：YYYY-MM-DD）
+    set /p "TODAY=请输入日期: "
+)
+
+if not defined TODAY (
+    echo [错误] 日期不能为空
+    pause
+    exit /b 1
+)
+echo %TODAY% | findstr /R "^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$" > nul
+if errorlevel 1 (
+    echo [错误] 日期格式无效，应为 YYYY-MM-DD
+    pause
+    exit /b 1
+)
+
+set "ZIP_FILE=network-capture-%TODAY%.zip"
+set "SOURCE_DIR=%USERPROFILE%\\Downloads\\${relativePathTemplate}"
+for %%I in ("%SOURCE_DIR%") do set "SOURCE_BASENAME=%%~nxI"
 
 echo ========================================
 echo   网络捕获数据压缩工具
-echo   目标日期: ${today}
+echo   目标日期: %TODAY%
 echo ========================================
 echo.
 
@@ -392,23 +434,48 @@ echo [完成] 找到文件
 
 echo.
 echo [2/3] 正在压缩文件夹...
-powershell -Command "Compress-Archive -Path '%SOURCE_DIR%' -DestinationPath '%ZIP_FILE%' -Force"
-if errorlevel 1 (
-    echo [错误] 压缩失败
+set "COMPRESS_OK="
+
+if defined PS_CMD (
+    %PS_CMD% -NoProfile -Command "Compress-Archive -Path '%SOURCE_DIR%' -DestinationPath '%ZIP_FILE%' -Force" > nul 2>&1
+    if not errorlevel 1 set "COMPRESS_OK=1"
+)
+
+rem PowerShell 不可用或失败时，降级使用 tar（Windows 10+ 常见）
+if not defined COMPRESS_OK (
+    where tar > nul 2>&1
+    if not errorlevel 1 (
+        tar -a -c -f "%ZIP_FILE%" -C "%SOURCE_DIR%\\.." "%SOURCE_BASENAME%" > nul 2>&1
+        if not errorlevel 1 set "COMPRESS_OK=1"
+    )
+)
+
+if not defined COMPRESS_OK (
+    echo [错误] 压缩失败：未找到可用压缩器（PowerShell/tar）或执行失败
     pause
     exit /b 1
 )
 echo [完成] 压缩成功
 
 echo.
-echo [3/3] 清理脚本...
-del "%~f0" > nul 2>&1
-
+echo [3/3] 压缩完成！
 echo.
 echo ========================================
 echo   压缩完成！
 echo   文件位置: %ZIP_FILE%
 echo ========================================
+echo.
+echo 脚本可重复使用，无需每天重新下载
+echo.
+set /p "DELETE_SCRIPT=是否删除脚本自身？(Y/N，默认=N): "
+if /i "%DELETE_SCRIPT%"=="Y" (
+    echo 正在删除脚本...
+    del "%~f0" > nul 2>&1
+    echo 脚本已删除
+) else (
+    echo 脚本已保留，可继续使用
+)
+
 echo.
 explorer /select,"%ZIP_FILE%"
 
@@ -417,22 +484,25 @@ timeout /t 3 > nul
 }
 
 // 辅助函数：生成 Unix Shell 脚本
-function generateUnixScript(today, savePath) {
-  // 构建完整的源目录路径
-  const relativePath = savePath ? `${savePath}/${today}` : today;
+function generateUnixScript(savePath) {
+  // 路径模板中的日期部分会在运行时动态获取
+  const relativePathTemplate = savePath
+    ? `${savePath}/\${TODAY}`
+    : '${TODAY}';
 
   return `#!/bin/bash
 
 # 网络捕获数据压缩工具
-# 目标日期: ${today}
+# 动态获取当天日期（格式：YYYY-MM-DD）
+TODAY=$(date +%Y-%m-%d)
 
-ZIP_FILE="network-capture-${today}.zip"
-SOURCE_DIR="$HOME/Downloads/${relativePath}"
+ZIP_FILE="network-capture-\${TODAY}.zip"
+SOURCE_DIR="$HOME/Downloads/${relativePathTemplate}"
 
 echo "========================================"
 echo "  网络捕获数据压缩工具"
-echo "  目标日期: ${today}"
-echo "  保存路径: ${relativePath}"
+echo "  目标日期: \${TODAY}"
+echo "  保存路径: ${savePath || '下载目录根路径'}/\${TODAY}"
 echo "========================================"
 echo
 
@@ -457,26 +527,49 @@ echo "[完成]"
 echo
 echo "[2/3] 正在压缩文件夹..."
 cd "$SOURCE_DIR/.."
-zip -r "$ZIP_FILE" "$(basename "$SOURCE_DIR")" 2>/dev/null
+SOURCE_BASENAME="$(basename "$SOURCE_DIR")"
+COMPRESS_OK=0
 
-if [ $? -ne 0 ]; then
-  echo "[错误] 压缩失败"
+if command -v zip >/dev/null 2>&1; then
+  zip -r "$ZIP_FILE" "$SOURCE_BASENAME" >/dev/null 2>&1 && COMPRESS_OK=1
+fi
+
+# macOS 常见降级方案
+if [ "$COMPRESS_OK" -ne 1 ] && command -v ditto >/dev/null 2>&1; then
+  ditto -c -k --keepParent "$SOURCE_BASENAME" "$ZIP_FILE" >/dev/null 2>&1 && COMPRESS_OK=1
+fi
+
+# Linux/部分系统的通用降级方案
+if [ "$COMPRESS_OK" -ne 1 ] && command -v tar >/dev/null 2>&1; then
+  tar -a -c -f "$ZIP_FILE" "$SOURCE_BASENAME" >/dev/null 2>&1 && COMPRESS_OK=1
+fi
+
+if [ "$COMPRESS_OK" -ne 1 ]; then
+  echo "[错误] 压缩失败：未找到可用压缩器（zip/ditto/tar）或执行失败"
   read -p "按回车键退出..."
   exit 1
 fi
 echo "[完成] 压缩成功"
 
 echo
-echo "[3/3] 清理脚本..."
-SCRIPT_PATH="$0"
-rm -f "$SCRIPT_PATH"
-echo "[完成]"
-
-echo
 echo "========================================"
 echo "  压缩完成！"
 echo "  文件位置: $(pwd)/$ZIP_FILE"
 echo "========================================"
+echo
+echo "脚本可重复使用，无需每天重新下载"
+echo
+
+# 询问是否删除脚本
+read -p "是否删除脚本自身？(y/N，默认=N): " DELETE_SCRIPT
+if [[ "$DELETE_SCRIPT" =~ ^[Yy]$ ]]; then
+  SCRIPT_PATH="$0"
+  rm -f "$SCRIPT_PATH"
+  echo "脚本已删除"
+else
+  echo "脚本已保留，可继续使用"
+fi
+
 echo
 
 # 尝试打开文件管理器并选中文件
@@ -487,8 +580,6 @@ elif command -v xdg-open >/dev/null 2>&1; then
   # Linux
   xdg-open "$ZIP_FILE" 2>/dev/null || nautilus "$ZIP_FILE" 2>/dev/null || dolphin "$ZIP_FILE" 2>/dev/null
 fi
-
-echo "脚本已自动删除"
 `;
 }
 
