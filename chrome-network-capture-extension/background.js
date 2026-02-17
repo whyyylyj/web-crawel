@@ -45,6 +45,8 @@ const MAX_RECORDS = 1500;
 // 写入 storage.local 时仅持久化最近少量摘要，避免触发配额导致设置无法保存
 const MAX_PERSISTED_RECORDS = 120;
 const REALTIME_SAVE_DELAY_MS = 2500;
+// 等待 content script 回填 body 的最长时间，超时后仍会落盘避免永久丢失文件
+const CONTENT_MERGE_MAX_WAIT_MS = 8000;
 
 let settings = { ...DEFAULT_SETTINGS };
 let stats = { ...DEFAULT_STATS };
@@ -371,11 +373,28 @@ function resolveCapturedUrl(rawUrl, sender) {
   return value;
 }
 
+// 格式化为日期文件夹名 (YYYY-MM-DD)
+function formatForDateFolder(date = new Date()) {
+  const yyyy = String(date.getFullYear());
+  const mm = String(date.getMonth() + 1).padStart(2, '0');
+  const dd = String(date.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+// 格式化为文件名时间部分 (HHmmss)
+function formatTimeForFile(date = new Date()) {
+  const hh = String(date.getHours()).padStart(2, '0');
+  const mi = String(date.getMinutes()).padStart(2, '0');
+  const ss = String(date.getSeconds()).padStart(2, '0');
+  return `${hh}${mi}${ss}`;
+}
+
 function buildRealtimeRecordFileName(record) {
   const createdAt = new Date(record?.created_at || Date.now());
-  const timestamp = Number.isNaN(createdAt.getTime())
-    ? formatTimestampForFile(new Date())
-    : formatTimestampForFile(createdAt);
+
+  // 拆分时间戳：日期用于文件夹，时间用于文件名
+  const dateFolder = formatForDateFolder(createdAt);  // 2025-02-17
+  const timePrefix = formatTimeForFile(createdAt);    // 143022
 
   const savePath = sanitizeSavePath(settings.save_path);
   const method = sanitizeFilenameSegment(record?.request?.method || 'GET', 10).toLowerCase();
@@ -385,13 +404,19 @@ function buildRealtimeRecordFileName(record) {
   const status = sanitizeFilenameSegment(String(record?.response?.status_code ?? 'na'), 8);
   const shortId = sanitizeFilenameSegment(String(record?.id || '').slice(-8), 12);
 
-  const fileName = `${timestamp}_${method}_${urlHint}_${ruleHint}_${status}_${shortId}.json`;
-  return savePath ? `${savePath}/${fileName}` : fileName;
+  const fileName = `${timePrefix}_${method}_${urlHint}_${ruleHint}_${status}_${shortId}.json`;
+
+  // 路径结构：savePath/2025-02-17/143022_xxx.json
+  if (savePath) {
+    return `${savePath}/${dateFolder}/${fileName}`;
+  }
+  // 如果没有设置 save_path，直接在下载目录下创建日期文件夹
+  return `${dateFolder}/${fileName}`;
 }
 
 function toPersistedRecord(record) {
-  // 持久化时保留完整的 request/response body 数据
-  // 这样导出时不会丢失 response_body
+  // 优化：只保存元数据，不保存完整的 body（已保存到文件）
+  // 文件路径可以通过 buildRealtimeRecordFileName(record) 重建
   return {
     id: record.id,
     created_at: record.created_at,
@@ -406,13 +431,13 @@ function toPersistedRecord(record) {
       type: record.request?.type || '',
       initiator: record.request?.initiator || '',
       request_headers: record.request?.request_headers || null,
-      request_body: record.request?.request_body || null
+      request_body: null  // 不保存到内存，body 已在文件中
     },
     response: {
       status_code: record.response?.status_code ?? null,
       status_line: record.response?.status_line || '',
       response_headers: record.response?.response_headers || null,
-      response_body: record.response?.response_body || null
+      response_body: null  // 不保存到内存，body 已在文件中
     },
     performance: {
       start_time: record.performance?.start_time ?? null,
@@ -421,25 +446,69 @@ function toPersistedRecord(record) {
       from_cache: Boolean(record.performance?.from_cache),
       source: record.performance?.source || 'webRequest'
     },
+    file_path: buildRealtimeRecordFileName(record),  // 新增：记录文件路径
     errors: Array.isArray(record.errors) ? record.errors.slice(0, 3) : []
   };
 }
 
-function shouldSaveRealtimeRecord(record) {
+function shouldSaveRealtimeRecord(record, bodyData = {}) {
   if (!settings.capture_response_data) {
     return true;
   }
 
+  // 优先使用 queueRealtimeSave 传入的临时 body（内存优化场景下不持久化到 records）
+  if (typeof bodyData.responseBody === 'string') {
+    return true;
+  }
+
   const responseBody = record?.response?.response_body;
-  return responseBody !== null && responseBody !== undefined;
+  if (responseBody !== null && responseBody !== undefined) {
+    return true;
+  }
+
+  // 已标记存在 body（但未写入内存）时，也允许落盘
+  if (record?.response?.has_body) {
+    return true;
+  }
+
+  // 如果记录创建时间异常，避免无限重试导致永不保存
+  const createdAt = Date.parse(record?.created_at || '');
+  if (!Number.isFinite(createdAt)) {
+    return true;
+  }
+
+  // 给 content script 合并留窗口，超时后即使没有 body 也写文件
+  return Date.now() - createdAt >= CONTENT_MERGE_MAX_WAIT_MS;
 }
 
-async function saveRecordAsRealtimeFile(record) {
+async function saveRecordAsRealtimeFile(record, bodyData = {}) {
+  const { responseBody, requestBody } = bodyData;
+
+  // 创建包含完整 body 数据的记录副本用于文件保存
+  // 内存中的原始记录不包含 body，节省内存
+  const recordWithBody = {
+    ...record,
+    request: {
+      ...record.request,
+      // 如果提供了 requestBody，添加到副本中
+      request_body: requestBody && record.request.has_body
+        ? { type: 'injected', value: requestBody }
+        : record.request.request_body
+    },
+    response: {
+      ...record.response,
+      // 如果提供了 responseBody，添加到副本中
+      response_body: responseBody && record.response.has_body
+        ? responseBody
+        : record.response.response_body
+    }
+  };
+
   const payload = {
     saved_at: nowIso(),
     mode: 'realtime-single-record',
     settings_snapshot: settings,
-    record
+    record: recordWithBody
   };
 
   const fileName = buildRealtimeRecordFileName(record);
@@ -458,6 +527,8 @@ async function saveRecordAsRealtimeFile(record) {
 
 function queueRealtimeSave(record, options = {}) {
   const forceReschedule = Boolean(options.forceReschedule);
+  const responseBody = options.responseBody || null;
+  const requestBody = options.requestBody || null;
 
   if (!record?.id || savedRecordIds.has(record.id)) {
     return;
@@ -475,11 +546,13 @@ function queueRealtimeSave(record, options = {}) {
   const timerId = setTimeout(() => {
     pendingRecordSaveTimers.delete(record.id);
 
-    if (!shouldSaveRealtimeRecord(record)) {
+    if (!shouldSaveRealtimeRecord(record, { responseBody, requestBody })) {
+      // 还未达到可保存条件时重排队，避免在 body 迟到时直接丢失文件
+      queueRealtimeSave(record, { forceReschedule: true, responseBody, requestBody });
       return;
     }
 
-    saveRecordAsRealtimeFile(record)
+    saveRecordAsRealtimeFile(record, { responseBody, requestBody })
       .then(async () => {
         savedRecordIds.add(record.id);
         stats.last_error = '';
@@ -881,6 +954,24 @@ async function exportCaptureData() {
   }
 }
 
+/**
+ * 获取指定日期的捕获记录（用于 ZIP 打包）
+ * @param {string} dateStr - 日期字符串 (YYYY-MM-DD)
+ * @returns {Array} 匹配的记录列表
+ */
+function getRecordsByDate(dateStr) {
+  if (!dateStr) {
+    return [];
+  }
+
+  // 从内存中的 records 筛选指定日期的记录
+  return records.filter(record => {
+    if (!record.created_at) return false;
+    const recordDate = record.created_at.split('T')[0]; // 提取日期部分
+    return recordDate === dateStr;
+  });
+}
+
 function safeHeaderArray(headers) {
   if (!Array.isArray(headers)) {
     return null;
@@ -1034,16 +1125,18 @@ function mergeContentCapture(data, sender) {
       record.source.push('contentScript');
     }
 
+    // 内存优化：不将 body 保存到内存记录，只保存元数据
+    // body 数据将在文件保存时临时组装
     if (settings.capture_response_data) {
-      record.response.response_body = responseBody;
-      logInfo(`已合并 response_body (${responseBody.length} chars)`);
+      record.response.has_body = true;
+      record.response.body_size = responseBody.length;
+      logInfo(`标记 response_body (${responseBody.length} chars，未保存到内存)`);
     }
 
-    if (settings.capture_request_data && requestBody && !record.request.request_body) {
-      record.request.request_body = {
-        type: 'injected',
-        value: requestBody
-      };
+    if (settings.capture_request_data && requestBody && !record.request.has_body) {
+      record.request.has_body = true;
+      record.request.body_size = requestBody.length;
+      logInfo(`标记 request_body (${requestBody.length} chars，未保存到内存)`);
     }
 
     if (typeof data.status === 'number') {
@@ -1057,7 +1150,11 @@ function mergeContentCapture(data, sender) {
 
     stats.last_capture_time = nowIso();
     // 内容脚本补齐了 body 后，延后保存，优先写入包含 responseBody 的版本
-    queueRealtimeSave(record, { forceReschedule: true });
+    queueRealtimeSave(record, {
+      forceReschedule: true,
+      responseBody,
+      requestBody  // 传递 body 数据用于文件保存
+    });
     return;
   }
 
@@ -1083,18 +1180,19 @@ function mergeContentCapture(data, sender) {
       type: 'unknown',
       initiator: sender?.url || '',
       request_headers: null,
-      request_body: settings.capture_request_data
-        ? {
-            type: 'injected',
-            value: requestBody || null
-          }
-        : null
+      // 内存优化：只保存元数据标记，不保存实际 body
+      has_body: Boolean(settings.capture_request_data && requestBody),
+      body_size: requestBody ? requestBody.length : 0,
+      request_body: null
     },
     response: {
       status_code: typeof data.status === 'number' ? data.status : null,
       status_line: '',
       response_headers: null,
-      response_body: settings.capture_response_data ? responseBody : null
+      // 内存优化：只保存元数据标记，不保存实际 body
+      has_body: Boolean(settings.capture_response_data && responseBody),
+      body_size: responseBody ? responseBody.length : 0,
+      response_body: null
     },
     performance: {
       start_time: null,
@@ -1110,7 +1208,7 @@ function mergeContentCapture(data, sender) {
   };
 
   pushRecord(record);
-  queueRealtimeSave(record);
+  queueRealtimeSave(record, { responseBody, requestBody });
 }
 
 async function init() {
@@ -1278,6 +1376,130 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case 'CLEAR_CAPTURE': {
         await clearCaptureData();
         sendResponse({ ok: true, payload: getStatePayload() });
+        break;
+      }
+
+      case 'GET_RECORDS_BY_DATE': {
+        try {
+          const dateStr = message.date || new Date().toISOString().split('T')[0];
+          const records = getRecordsByDate(dateStr);
+
+          sendResponse({
+            ok: true,
+            payload: {
+              date: dateStr,
+              count: records.length,
+              records: records
+            }
+          });
+        } catch (error) {
+          stats.error_count += 1;
+          stats.last_error = `获取记录失败: ${error.message}`;
+          await persistData();
+          sendResponse({ ok: false, error: stats.last_error });
+        }
+        break;
+      }
+
+      case 'GET_LATEST_RECORD_FILE': {
+        try {
+          if (records.length === 0) {
+            sendResponse({ ok: false, error: '暂无捕获记录' });
+            break;
+          }
+
+          // 获取最新的记录（数组最后一个）
+          const latestRecord = records[records.length - 1];
+          const fileName = buildRealtimeRecordFileName(latestRecord);
+          const relativePath = settings.save_path
+            ? `${settings.save_path}/${fileName}`
+            : fileName;
+
+          sendResponse({
+            ok: true,
+            payload: {
+              file_name: fileName,
+              relative_path: relativePath,
+              record_id: latestRecord.id,
+              created_at: latestRecord.created_at,
+              url: latestRecord.request.url,
+              method: latestRecord.request.method,
+              has_body: latestRecord.response.has_body || latestRecord.request.has_body
+            }
+          });
+        } catch (error) {
+          stats.error_count += 1;
+          stats.last_error = `获取最新记录失败: ${error.message}`;
+          await persistData();
+          sendResponse({ ok: false, error: stats.last_error });
+        }
+        break;
+      }
+
+      case 'GET_RULE_STATS': {
+        try {
+          // 统计每个规则的捕获数量
+          const ruleStats = new Map();
+
+          // 初始化统计：为每个启用的规则创建条目
+          const rules = Array.isArray(settings.url_filter_rules) ? settings.url_filter_rules : [];
+          for (const rule of rules) {
+            if (rule?.enabled !== false && String(rule?.pattern || '').trim()) {
+              ruleStats.set(rule.pattern.trim(), 0);
+            }
+          }
+
+          // 遍历所有记录进行统计
+          let allModeCount = 0;
+          for (const record of records) {
+            const matchMode = record?.match?.mode;
+            const rulePattern = record?.match?.rule_pattern || '';
+
+            if (matchMode === 'all' || !rulePattern) {
+              allModeCount += 1;
+            } else if (matchMode === 'rule' && rulePattern) {
+              const current = ruleStats.get(rulePattern) || 0;
+              ruleStats.set(rulePattern, current + 1);
+            }
+          }
+
+          // 构建返回结果
+          const statsList = [];
+
+          // 添加各规则的统计
+          for (const [pattern, count] of ruleStats.entries()) {
+            statsList.push({
+              pattern: pattern,
+              count: count,
+              type: 'rule'
+            });
+          }
+
+          // 如果有"全量捕获"的记录，添加一个特殊条目
+          if (allModeCount > 0 || rules.length === 0) {
+            statsList.unshift({
+              pattern: rules.length === 0 ? '（未设置规则，全量捕获）' : '（未匹配规则）',
+              count: allModeCount,
+              type: 'all'
+            });
+          }
+
+          const totalCaptured = statsList.reduce((sum, item) => sum + item.count, 0);
+
+          sendResponse({
+            ok: true,
+            payload: {
+              total_records: records.length,
+              total_captured: totalCaptured,
+              rule_stats: statsList
+            }
+          });
+        } catch (error) {
+          stats.error_count += 1;
+          stats.last_error = `获取规则统计失败: ${error.message}`;
+          await persistData();
+          sendResponse({ ok: false, error: stats.last_error });
+        }
         break;
       }
 

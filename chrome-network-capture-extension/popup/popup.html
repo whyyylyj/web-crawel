@@ -5,12 +5,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Network Capture</title>
     <link rel="stylesheet" href="popup.css" />
+    <!-- 引入 JSZip 库 -->
+    <script src="../lib/jszip.min.js"></script>
   </head>
   <body>
     <main class="container">
       <header class="header">
-        <h1>网络请求捕获</h1>
-        <p id="statusText" class="status status-off">状态：未开启</p>
+        <div class="header-left">
+          <h1>网络请求捕获</h1>
+          <p id="statusText" class="status status-off">状态：未开启</p>
+        </div>
+        <button id="optionsBtn" class="settings-btn" title="打开设置">⚙️</button>
       </header>
 
       <section class="card">
@@ -28,7 +33,7 @@
         </div>
       </section>
 
-      <section class="card stats">
+      <section class="card stats" id="statsCard">
         <h2>实时统计</h2>
         <div class="stats-grid">
           <div class="item"><span>总请求</span><strong id="totalRequests">0</strong></div>
@@ -37,12 +42,28 @@
           <div class="item"><span>错误数</span><strong id="errorCount">0</strong></div>
         </div>
         <p class="muted" id="lastCapture">最近捕获：-</p>
+
+        <!-- Hover 统计浮层 -->
+        <div id="statsHoverCard" class="stats-hover-card">
+          <div class="stats-hover-content">
+            <div class="stats-hover-header">
+              <h3>📊 规则统计</h3>
+              <div class="stats-hover-loading" id="statsLoading">
+                <span class="loading-spinner"></span>
+              </div>
+            </div>
+            <div id="ruleStatsHoverContent" class="stats-hover-body">
+              <!-- 统计数据将在这里渲染 -->
+            </div>
+          </div>
+        </div>
       </section>
 
       <section class="actions">
         <button id="toggleBtn" class="btn primary">开启捕获</button>
         <button id="clearBtn" class="btn danger">清空数据</button>
-        <button id="optionsBtn" class="btn ghost">打开设置</button>
+        <button id="openFolderBtn" class="btn ghost">打开文件夹</button>
+        <button id="downloadScriptBtn" class="btn ghost">生成压缩包</button>
       </section>
 
       <p id="message" class="message"></p>
