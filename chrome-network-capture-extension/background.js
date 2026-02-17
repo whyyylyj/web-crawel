@@ -15,17 +15,25 @@ const DEFAULT_SETTINGS = {
   // 新结构：规则数组，每项结构为 { id, pattern, enabled, methods }
   // methods 为可选数组，包含要匹配的 HTTP 方法（不填则匹配所有方法）
   url_filter_rules: [],
+  // 排除规则：命中后直接忽略，不进入捕获
+  url_exclude_rules: [],
+  // 一键忽略常见静态资源请求
+  ignore_static_resources: false,
   save_path: '',
   capture_request_data: true,
   capture_response_data: true,
   capture_performance_data: false,
-  max_body_length: 20_000_000 // 默认 20MB (约 2000万字符)
+  max_body_length: 20_000_000, // 默认 20MB (约 2000万字符)
+  // 安全优化：默认不持久化 body 预览到 storage.local（避免敏感数据落盘）
+  persist_body_preview: false
 };
 
 const DEFAULT_STATS = {
   total_requests: 0,
   matched_requests: 0,
   captured_requests: 0,
+  excluded_requests: 0,
+  static_ignored_requests: 0,
   error_count: 0,
   last_capture_time: null,
   last_export_time: null,
@@ -47,12 +55,25 @@ const MAX_PERSISTED_RECORDS = 120;
 const REALTIME_SAVE_DELAY_MS = 2500;
 // 等待 content script 回填 body 的最长时间，超时后仍会落盘避免永久丢失文件
 const CONTENT_MERGE_MAX_WAIT_MS = 8000;
+const BODY_PREVIEW_MAX_LENGTH = 12_000;
+const STATIC_RESOURCE_EXT_RE =
+  /\.(?:css|js|mjs|map|png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|otf|eot|mp4|mov|mp3|wav|pdf|zip)(?:[?#]|$)/i;
+const STATIC_RESOURCE_TYPES = new Set([
+  'image',
+  'stylesheet',
+  'script',
+  'font',
+  'media',
+  'imageset',
+  'object'
+]);
 
 let settings = { ...DEFAULT_SETTINGS };
 let stats = { ...DEFAULT_STATS };
 let records = [];
 // 编译后的有效规则列表，仅包含启用且正则语法正确的规则
-let compiledRegexRules = [];
+let compiledIncludeRules = [];
+let compiledExcludeRules = [];
 
 // requestId -> recordIndex
 const requestIndexById = new Map();
@@ -62,6 +83,11 @@ const requestMetaById = new Map();
 const mergeCandidatesByKey = new Map();
 const pendingRecordSaveTimers = new Map();
 const savedRecordIds = new Set();
+
+// 性能优化：防抖机制，避免频繁写入 storage
+let persistScheduled = false;
+let persistTimer = null;
+const PERSIST_DEBOUNCE_MS = 2000;
 
 function logInfo(...args) {
   console.info('[NetworkCapture]', ...args);
@@ -138,6 +164,10 @@ function sanitizeSettings(raw = {}) {
   const safe = {
     ...DEFAULT_SETTINGS,
     capture_enabled: Boolean(raw.capture_enabled),
+    ignore_static_resources:
+      raw.ignore_static_resources === undefined
+        ? DEFAULT_SETTINGS.ignore_static_resources
+        : Boolean(raw.ignore_static_resources),
     save_path: sanitizeSavePath(raw.save_path),
     capture_request_data:
       raw.capture_request_data === undefined
@@ -154,10 +184,15 @@ function sanitizeSettings(raw = {}) {
     max_body_length:
       raw.max_body_length === undefined
         ? DEFAULT_SETTINGS.max_body_length
-        : Number(raw.max_body_length) || DEFAULT_SETTINGS.max_body_length
+        : Number(raw.max_body_length) || DEFAULT_SETTINGS.max_body_length,
+    persist_body_preview:
+      raw.persist_body_preview === undefined
+        ? DEFAULT_SETTINGS.persist_body_preview
+        : Boolean(raw.persist_body_preview)
   };
 
   safe.url_filter_rules = normalizeUrlRules(raw.url_filter_rules, raw.url_filter_regex);
+  safe.url_exclude_rules = normalizeUrlRules(raw.url_exclude_rules);
   return safe;
 }
 
@@ -188,11 +223,8 @@ function buildKey(tabId, method, rawUrl) {
   return `${tabId}|${String(method || 'GET').toUpperCase()}|${normalizeUrl(rawUrl)}`;
 }
 
-function compileFilterRegex(rules) {
-  compiledRegexRules = [];
-
-  const invalidMessages = [];
-
+function compileRuleSet(rules, invalidMessages, ruleTypeLabel) {
+  const compiled = [];
   for (const rule of Array.isArray(rules) ? rules : []) {
     if (!rule?.enabled) {
       continue;
@@ -204,7 +236,7 @@ function compileFilterRegex(rules) {
     }
 
     try {
-      compiledRegexRules.push({
+      compiled.push({
         id: String(rule.id || createRuleId()),
         pattern,
         regex: new RegExp(pattern),
@@ -212,9 +244,16 @@ function compileFilterRegex(rules) {
         methods: Array.isArray(rule.methods) && rule.methods.length > 0 ? rule.methods : null
       });
     } catch (error) {
-      invalidMessages.push(`规则「${pattern}」无效: ${error.message}`);
+      invalidMessages.push(`${ruleTypeLabel}规则「${pattern}」无效: ${error.message}`);
     }
   }
+  return compiled;
+}
+
+function compileFilterRegex(includeRules, excludeRules = []) {
+  const invalidMessages = [];
+  compiledIncludeRules = compileRuleSet(includeRules, invalidMessages, '捕获');
+  compiledExcludeRules = compileRuleSet(excludeRules, invalidMessages, '排除');
 
   if (invalidMessages.length > 0) {
     stats.last_error = invalidMessages.join(' | ');
@@ -224,36 +263,65 @@ function compileFilterRegex(rules) {
   }
 
   logInfo(
-    `过滤规则编译完成。总规则=${Array.isArray(rules) ? rules.length : 0}，启用且有效=${compiledRegexRules.length}`
+    `过滤规则编译完成。包含规则=${compiledIncludeRules.length}，排除规则=${compiledExcludeRules.length}`
   );
 
   return invalidMessages.length === 0;
 }
 
-function getUrlMatchMeta(rawUrl, method = 'GET') {
-  // 当没有"启用且有效"的规则时，默认不过滤（全量捕获）
-  if (compiledRegexRules.length === 0) {
+function isStaticResource(details = {}, rawUrl = '') {
+  if (STATIC_RESOURCE_TYPES.has(String(details?.type || '').toLowerCase())) {
+    return true;
+  }
+  return STATIC_RESOURCE_EXT_RE.test(String(rawUrl || ''));
+}
+
+function findMatchedRule(compiledRules, rawUrl, normalizedMethod) {
+  return compiledRules.find((item) => {
+    if (!item.regex.test(rawUrl)) {
+      return false;
+    }
+    if (item.methods && !item.methods.includes(normalizedMethod)) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function getUrlMatchMeta(rawUrl, method = 'GET', details = null) {
+  const normalizedMethod = String(method || 'GET').toUpperCase();
+
+  if (settings.ignore_static_resources && isStaticResource(details || {}, rawUrl)) {
     return {
-      matched: true,
-      mode: 'all',
+      matched: false,
+      mode: 'ignore-static',
       rule_pattern: '',
       methods: null
     };
   }
 
   try {
-    const normalizedMethod = String(method || 'GET').toUpperCase();
-    const matchedRule = compiledRegexRules.find((item) => {
-      // 首先检查 URL 是否匹配
-      if (!item.regex.test(rawUrl)) {
-        return false;
-      }
-      // 如果规则指定了 methods，检查 HTTP 方法是否匹配
-      if (item.methods && !item.methods.includes(normalizedMethod)) {
-        return false;
-      }
-      return true;
-    });
+    const excludedRule = findMatchedRule(compiledExcludeRules, rawUrl, normalizedMethod);
+    if (excludedRule) {
+      return {
+        matched: false,
+        mode: 'exclude',
+        rule_pattern: excludedRule.pattern,
+        methods: excludedRule.methods
+      };
+    }
+
+    // 当没有"启用且有效"的包含规则时，默认不过滤（全量捕获）
+    if (compiledIncludeRules.length === 0) {
+      return {
+        matched: true,
+        mode: 'all',
+        rule_pattern: '',
+        methods: null
+      };
+    }
+
+    const matchedRule = findMatchedRule(compiledIncludeRules, rawUrl, normalizedMethod);
 
     if (!matchedRule) {
       return {
@@ -417,6 +485,9 @@ function buildRealtimeRecordFileName(record) {
 function toPersistedRecord(record) {
   // 优化：只保存元数据，不保存完整的 body（已保存到文件）
   // 文件路径可以通过 buildRealtimeRecordFileName(record) 重建
+  // 安全优化：根据设置决定是否持久化 body 预览（避免敏感数据长期落盘）
+  const shouldPersistPreview = Boolean(settings.persist_body_preview);
+
   return {
     id: record.id,
     created_at: record.created_at,
@@ -430,12 +501,18 @@ function toPersistedRecord(record) {
       method: record.request?.method || '',
       type: record.request?.type || '',
       initiator: record.request?.initiator || '',
+      has_body: Boolean(record.request?.has_body),
+      body_size: Number(record.request?.body_size || 0),
+      body_preview: shouldPersistPreview ? String(record.request?.body_preview || '') : '',
       request_headers: record.request?.request_headers || null,
       request_body: null  // 不保存到内存，body 已在文件中
     },
     response: {
       status_code: record.response?.status_code ?? null,
       status_line: record.response?.status_line || '',
+      has_body: Boolean(record.response?.has_body),
+      body_size: Number(record.response?.body_size || 0),
+      body_preview: shouldPersistPreview ? String(record.response?.body_preview || '') : '',
       response_headers: record.response?.response_headers || null,
       response_body: null  // 不保存到内存，body 已在文件中
     },
@@ -449,6 +526,10 @@ function toPersistedRecord(record) {
     file_path: buildRealtimeRecordFileName(record),  // 新增：记录文件路径
     errors: Array.isArray(record.errors) ? record.errors.slice(0, 3) : []
   };
+}
+
+function toPreviewText(value) {
+  return clampText(String(value || ''), BODY_PREVIEW_MAX_LENGTH);
 }
 
 function shouldSaveRealtimeRecord(record, bodyData = {}) {
@@ -493,14 +574,18 @@ async function saveRecordAsRealtimeFile(record, bodyData = {}) {
       // 如果提供了 requestBody，添加到副本中
       request_body: requestBody && record.request.has_body
         ? { type: 'injected', value: requestBody }
-        : record.request.request_body
+        : record.request.request_body,
+      // 移除 body_preview（文件中已有完整 request_body，避免冗余）
+      body_preview: undefined
     },
     response: {
       ...record.response,
       // 如果提供了 responseBody，添加到副本中
       response_body: responseBody && record.response.has_body
         ? responseBody
-        : record.response.response_body
+        : record.response.response_body,
+      // 移除 body_preview（文件中已有完整 response_body，避免冗余）
+      body_preview: undefined
     }
   };
 
@@ -636,12 +721,18 @@ function createBaseRecord(details, matchMeta = { mode: 'all', rule_pattern: '' }
       method: details.method,
       type: details.type,
       initiator: details.initiator || '',
+      has_body: false,
+      body_size: 0,
+      body_preview: '',
       request_headers: null,
       request_body: null
     },
     response: {
       status_code: null,
       status_line: '',
+      has_body: false,
+      body_size: 0,
+      body_preview: '',
       response_headers: null,
       response_body: null
     },
@@ -660,6 +751,22 @@ function pushRecord(record) {
   records.push(record);
   if (records.length > MAX_RECORDS) {
     const removeCount = records.length - MAX_RECORDS;
+
+    // 修复内存泄漏：清理被删除记录的定时器和ID集合
+    for (let i = 0; i < removeCount; i++) {
+      const removedRecord = records[i];
+      if (removedRecord?.id) {
+        // 清理定时器
+        const timerId = pendingRecordSaveTimers.get(removedRecord.id);
+        if (timerId) {
+          clearTimeout(timerId);
+          pendingRecordSaveTimers.delete(removedRecord.id);
+        }
+        // 清理已保存标记
+        savedRecordIds.delete(removedRecord.id);
+      }
+    }
+
     records = records.slice(removeCount);
 
     // records 裁剪后，索引整体左移，需要同步修正内部映射
@@ -734,7 +841,8 @@ function getStatePayload() {
     stats,
     record_count: records.length,
     // 提供当前生效规则数，避免 popup/options 重复计算
-    active_rule_count: compiledRegexRules.length,
+    active_rule_count: compiledIncludeRules.length,
+    active_exclude_rule_count: compiledExcludeRules.length,
     recent_records: records.slice(-5).reverse()
   };
 }
@@ -763,6 +871,21 @@ async function persistData() {
   }
 }
 
+// 性能优化：防抖版本的 persistData 调度
+function schedulePersist() {
+  if (persistScheduled) {
+    return;
+  }
+
+  persistScheduled = true;
+  persistTimer = setTimeout(() => {
+    persistData().finally(() => {
+      persistScheduled = false;
+      persistTimer = null;
+    });
+  }, PERSIST_DEBOUNCE_MS);
+}
+
 async function loadData() {
   const data = await chrome.storage.local.get([
     STORAGE_KEYS.SETTINGS,
@@ -774,7 +897,7 @@ async function loadData() {
   stats = { ...DEFAULT_STATS, ...(data[STORAGE_KEYS.STATS] || {}) };
   records = Array.isArray(data[STORAGE_KEYS.CAPTURE_DATA]) ? data[STORAGE_KEYS.CAPTURE_DATA] : [];
 
-  compileFilterRegex(settings.url_filter_rules);
+  compileFilterRegex(settings.url_filter_rules, settings.url_exclude_rules);
   updateBadge();
   logInfo('加载配置完成：', {
     capture_enabled: settings.capture_enabled,
@@ -786,7 +909,7 @@ async function loadData() {
 async function saveSettings(nextSettings) {
   settings = sanitizeSettings(nextSettings || {});
 
-  compileFilterRegex(settings.url_filter_rules);
+  compileFilterRegex(settings.url_filter_rules, settings.url_exclude_rules);
 
   await chrome.storage.local.set({
     [STORAGE_KEYS.SETTINGS]: settings
@@ -986,8 +1109,13 @@ function handleWebRequestBefore(details) {
 
   stats.total_requests += 1;
 
-  const matchMeta = getUrlMatchMeta(details.url, details.method);
+  const matchMeta = getUrlMatchMeta(details.url, details.method, details);
   if (!matchMeta.matched) {
+    if (matchMeta.mode === 'exclude') {
+      stats.excluded_requests += 1;
+    } else if (matchMeta.mode === 'ignore-static') {
+      stats.static_ignored_requests += 1;
+    }
     return;
   }
 
@@ -997,6 +1125,13 @@ function handleWebRequestBefore(details) {
 
   if (settings.capture_request_data) {
     record.request.request_body = parseRequestBody(details.requestBody);
+    if (record.request.request_body) {
+      const rawValue = record.request.request_body.value;
+      const textValue = typeof rawValue === 'string' ? rawValue : JSON.stringify(rawValue);
+      record.request.has_body = true;
+      record.request.body_size = textValue ? textValue.length : 0;
+      record.request.body_preview = toPreviewText(textValue || '');
+    }
   }
 
   const index = records.length;
@@ -1090,7 +1225,9 @@ function mergeContentCapture(data, sender) {
 
   const method = String(data.method || 'GET').toUpperCase();
   const resolvedUrl = resolveCapturedUrl(data.url, sender);
-  const matchMeta = getUrlMatchMeta(resolvedUrl, method);
+  const matchMeta = getUrlMatchMeta(resolvedUrl, method, {
+    type: String(data.resourceType || data.type || '').toLowerCase()
+  });
   if (!matchMeta.matched) {
     return;
   }
@@ -1130,12 +1267,14 @@ function mergeContentCapture(data, sender) {
     if (settings.capture_response_data) {
       record.response.has_body = true;
       record.response.body_size = responseBody.length;
+      record.response.body_preview = toPreviewText(responseBody);
       logInfo(`标记 response_body (${responseBody.length} chars，未保存到内存)`);
     }
 
     if (settings.capture_request_data && requestBody && !record.request.has_body) {
       record.request.has_body = true;
       record.request.body_size = requestBody.length;
+      record.request.body_preview = toPreviewText(requestBody);
       logInfo(`标记 request_body (${requestBody.length} chars，未保存到内存)`);
     }
 
@@ -1183,6 +1322,7 @@ function mergeContentCapture(data, sender) {
       // 内存优化：只保存元数据标记，不保存实际 body
       has_body: Boolean(settings.capture_request_data && requestBody),
       body_size: requestBody ? requestBody.length : 0,
+      body_preview: requestBody ? toPreviewText(requestBody) : '',
       request_body: null
     },
     response: {
@@ -1192,6 +1332,7 @@ function mergeContentCapture(data, sender) {
       // 内存优化：只保存元数据标记，不保存实际 body
       has_body: Boolean(settings.capture_response_data && responseBody),
       body_size: responseBody ? responseBody.length : 0,
+      body_preview: responseBody ? toPreviewText(responseBody) : '',
       response_body: null
     },
     performance: {
@@ -1273,7 +1414,7 @@ chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
     try {
       handleWebRequestBefore(details);
-      persistData();
+      schedulePersist(); // 性能优化：使用防抖写入
       broadcastState();
     } catch (error) {
       stats.error_count += 1;
@@ -1289,7 +1430,7 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
   (details) => {
     try {
       handleWebRequestSendHeaders(details);
-      persistData();
+      schedulePersist(); // 性能优化：使用防抖写入
     } catch (error) {
       stats.error_count += 1;
       stats.last_error = `onBeforeSendHeaders 处理失败: ${error.message}`;
@@ -1304,7 +1445,7 @@ chrome.webRequest.onHeadersReceived.addListener(
   (details) => {
     try {
       handleWebRequestHeaders(details);
-      persistData();
+      schedulePersist(); // 性能优化：使用防抖写入
     } catch (error) {
       stats.error_count += 1;
       stats.last_error = `onHeadersReceived 处理失败: ${error.message}`;
@@ -1319,7 +1460,7 @@ chrome.webRequest.onCompleted.addListener(
   (details) => {
     try {
       finalizeRequest(details);
-      persistData();
+      schedulePersist(); // 性能优化：使用防抖写入
       broadcastState();
     } catch (error) {
       stats.error_count += 1;
@@ -1334,7 +1475,7 @@ chrome.webRequest.onErrorOccurred.addListener(
   (details) => {
     try {
       finalizeRequest(details, `请求失败: ${details.error || 'unknown'}`);
-      persistData();
+      schedulePersist(); // 性能优化：使用防抖写入
       broadcastState();
     } catch (error) {
       stats.error_count += 1;

@@ -40,10 +40,25 @@
       </section>
 
       <section class="panel">
+        <div class="rules-header">
+          <h2>URL 排除规则（Exclude）</h2>
+          <p>已配置 <strong id="excludeRuleCount">0</strong> / 20 条</p>
+        </div>
+
+        <div class="rule-adder">
+          <input id="newExcludeRuleInput" type="text" placeholder="例如：\\.png$ 或 analytics" />
+          <button id="addExcludeRuleBtn" class="btn primary" type="button">添加排除</button>
+        </div>
+        <p class="hint">命中排除规则后将直接忽略，不写入记录。</p>
+        <ul id="excludeRuleList" class="rule-list"></ul>
+      </section>
+
+      <section class="panel">
         <h2>采集数据类型</h2>
         <label class="switch"><input id="captureRequestData" type="checkbox" /> <span>请求数据</span></label>
         <label class="switch"><input id="captureResponseData" type="checkbox" /> <span>响应数据</span></label>
         <label class="switch"><input id="capturePerformanceData" type="checkbox" /> <span>性能数据（时延）</span></label>
+        <label class="switch"><input id="ignoreStaticResources" type="checkbox" /> <span>忽略静态资源（图片/CSS/JS/字体等）</span></label>
 
         <label class="field mt-10">
           <span>最大 Body 限制 (字符数)</span>

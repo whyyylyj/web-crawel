@@ -225,6 +225,7 @@ header p {
   margin: 8px 0;
 }
 
+
 .actions {
   margin-top: 16px;
   display: flex;
@@ -287,4 +288,5 @@ header p {
   .rule-delete {
     width: 100%;
   }
+
 }
