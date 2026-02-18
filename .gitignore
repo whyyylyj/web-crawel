@@ -8,3 +8,14 @@ dist/
 .fix-backup/
 .playwright-mcp/
 .kim-orchestrator/
+.claude.json
+.gemini/
+.qreview/
+.zcf/
+network-capture-assistant-v1.0.0.zip
+chrome-network-capture-extension/OPTIMIZATION_SUMMARY.md
+chrome-network-capture-extension/PERFORMANCE_ANALYSIS.md
+chrome-network-capture-extension/PERFORMANCE_OPTIMIZATION_V1.2.0.md
+chrome-network-capture-extension/ZIP_PACKING_IMPLEMENTATION_PLAN.md
+chrome-network-capture-extension/performance-test.html
+chrome-network-capture-extension/test-sidepanel.html
