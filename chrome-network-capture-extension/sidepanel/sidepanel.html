@@ -65,9 +65,28 @@
       <section class="actions">
         <button id="toggleBtn" class="btn primary">开启捕获</button>
         <button id="clearBtn" class="btn danger">清空数据</button>
-        <button id="openFolderBtn" class="btn ghost">打开文件夹</button>
-        <button id="downloadScriptBtn" class="btn ghost">生成压缩包</button>
+        <button id="openFolderBtn" class="btn ghost">📂 打开文件夹</button>
+        <button id="packTodayBtn" class="btn primary highlight">📦 打包今日数据</button>
+
+        <!-- 备用方案（折叠） -->
+        <details class="fallback-section">
+          <summary>备用方案</summary>
+          <button id="downloadScriptBtn" class="btn ghost small">生成压缩脚本</button>
+        </details>
       </section>
+
+      <!-- 进度提示卡片 -->
+      <div id="packProgress" class="progress-card" style="display: none;">
+        <h3>正在打包数据...</h3>
+        <div class="progress-bar">
+          <div id="progressFill" class="progress-fill"></div>
+        </div>
+        <p id="progressText">准备中...</p>
+        <div class="progress-stats">
+          <span id="progressCount">0/0</span>
+          <span id="progressTime">0.0s</span>
+        </div>
+      </div>
 
       <section class="info-section">
         <div class="info-card">

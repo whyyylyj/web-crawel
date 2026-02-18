@@ -21,6 +21,7 @@ const optionsBtn = document.getElementById('optionsBtn');
 const refreshBtn = document.getElementById('refreshBtn');
 const openFolderBtn = document.getElementById('openFolderBtn');
 const downloadScriptBtn = document.getElementById('downloadScriptBtn');
+const packTodayBtn = document.getElementById('packTodayBtn');
 
 const statsCard = document.getElementById('statsCard');
 const statsHoverCard = document.getElementById('statsHoverCard');
@@ -38,7 +39,7 @@ function detectChromeVersion() {
   if (match) {
     const version = match[1];
     const majorVersion = parseInt(version.split('.')[0], 10);
-    chromeVersionEl.textContent = `Chrome 版本: ${version} (支持 Side Panel API)`;
+    chromeVersionEl.textContent = `Chrome 版本：${version} (支持 Side Panel API)`;
 
     if (majorVersion < 114) {
       chromeVersionEl.textContent += ' - 注意：Side Panel API 需要 Chrome 114+';
@@ -287,7 +288,7 @@ if not defined TODAY (
 )
 if not defined TODAY (
     echo [警告] 无法自动获取日期，请手动输入（格式：YYYY-MM-DD）
-    set /p "TODAY=请输入日期: "
+    set /p "TODAY=请输入日期："
 )
 if not defined TODAY (
     echo [错误] 日期不能为空
@@ -304,7 +305,7 @@ set "ZIP_FILE=network-capture-%TODAY%.zip"
 set "SOURCE_DIR=%USERPROFILE%\\Downloads\\${relativePathTemplate}"
 for %%I in ("%SOURCE_DIR%") do set "SOURCE_BASENAME=%%~nxI"
 if not exist "%SOURCE_DIR%" (
-    echo [错误] 文件夹不存在: %SOURCE_DIR%
+    echo [错误] 文件夹不存在：%SOURCE_DIR%
     pause
     exit /b 1
 )
@@ -340,7 +341,7 @@ TODAY=$(date +%Y-%m-%d)
 ZIP_FILE="network-capture-\${TODAY}.zip"
 SOURCE_DIR="$HOME/Downloads/${relativePathTemplate}"
 if [ ! -d "$SOURCE_DIR" ]; then
-  echo "[错误] 文件夹不存在: $SOURCE_DIR"
+  echo "[错误] 文件夹不存在：$SOURCE_DIR"
   read -p "按回车键退出..."
   exit 1
 fi
@@ -437,7 +438,7 @@ function hideStatsHover() {
 }
 
 statsCard.addEventListener('mouseenter', () => {
-  // 添加2秒延迟再触发hover浮层
+  // 添加 2 秒延迟再触发 hover 浮层
   hoverTimer = setTimeout(() => {
     showStatsHover();
   }, 2000);
@@ -474,9 +475,195 @@ chrome.runtime.onMessage.addListener((message) => {
 detectChromeVersion();
 requestState().catch((error) => setMessage(error.message, true));
 
-// Side Panel 模式下轮询间隔更长（2秒），因为不会因为下载而关闭
+// Side Panel 模式下轮询间隔更长（2 秒），因为不会因为下载而关闭
 setInterval(() => {
   requestState().catch(() => {
     // Side Panel 关闭或 service worker 暂时休眠时静默忽略
   });
 }, 2000);
+
+// ========== ZIP 打包今日数据功能 ==========
+
+/**
+ * Normalize path separators (Windows/Unix compatible)
+ */
+function normalizePath(path) {
+  if (!path) return '';
+  return path.replace(/\\/g, '/');
+}
+
+/**
+ * Extract filename from full path
+ */
+function extractFilename(fullPath) {
+  if (!fullPath) return '';
+  const normalized = normalizePath(fullPath);
+  const parts = normalized.split('/');
+  return parts[parts.length - 1] || '';
+}
+
+/**
+ * Check if file is a network capture JSON file
+ * Filename format: {HHmmss}_{METHOD}_{HOST}_..._{STATUS}_{HASH}.json
+ */
+function isCaptureFile(filename) {
+  if (!filename) return false;
+  const basename = extractFilename(filename);
+  // Must end with .json
+  if (!basename.match(/\.json$/i)) return false;
+  // Must start with 6-digit timestamp + underscore + HTTP method
+  if (!basename.match(/^\d{6}_[a-z]+_/)) return false;
+  return true;
+}
+
+/**
+ * Pack today's capture data into ZIP
+ * 
+ * 说明：使用手动选择文件夹方式，直接从文件系统读取最新文件内容
+ * 原因：chrome.downloads.search() 返回的 blob URL 可能指向过期内容
+ */
+async function packTodayData() {
+  const btn = document.getElementById('packTodayBtn');
+  const progressCard = document.getElementById('packProgress');
+  const progressFill = document.getElementById('progressFill');
+  const progressText = document.getElementById('progressText');
+  const progressCount = document.getElementById('progressCount');
+  const progressTime = document.getElementById('progressTime');
+
+  if (!btn) return;
+
+  const startTime = Date.now();
+  btn.disabled = true;
+  progressCard.style.display = 'block';
+  progressFill.style.width = '0%';
+  progressFill.classList.remove('error');
+  progressText.textContent = '请选择包含捕获数据的文件夹...';
+
+  try {
+    // 提示用户选择文件夹
+    const manualBtn = document.createElement('button');
+    manualBtn.className = 'btn primary';
+    manualBtn.textContent = '📂 选择文件夹';
+    manualBtn.style.marginTop = '8px';
+    
+    manualBtn.onclick = async () => {
+      try {
+        manualBtn.disabled = true;
+        manualBtn.textContent = '正在打开文件夹选择...';
+
+        const dirHandle = await window.showDirectoryPicker();
+        progressText.textContent = '正在读取文件夹...';
+
+        const files = [];
+        for await (const entry of dirHandle.values()) {
+          if (entry.kind === 'file' && isCaptureFile(entry.name)) {
+            files.push({ name: entry.name, handle: entry });
+          }
+        }
+
+        if (files.length === 0) {
+          throw new Error('该文件夹中没有捕获数据文件');
+        }
+
+        progressText.textContent = `找到 ${files.length} 个文件，正在打包...`;
+        await processFilesForZip(files, progressFill, progressText, progressCount, progressTime, startTime);
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          progressText.textContent = '用户已取消文件夹选择';
+        } else {
+          progressFill.classList.add('error');
+          progressText.textContent = `错误：${err.message}`;
+        }
+      } finally {
+        manualBtn.remove();
+        btn.disabled = false;
+      }
+    };
+
+    progressText.appendChild(document.createElement('br'));
+    progressText.appendChild(manualBtn);
+
+  } catch (error) {
+    progressFill.classList.add('error');
+    progressText.textContent = `打包失败：${error.message}`;
+    console.error('Pack today data error:', error);
+    btn.disabled = false;
+  }
+}
+
+/**
+ * Process files and create ZIP
+ * 
+ * 说明：直接从文件系统读取文件内容，不使用 chrome.downloads 的 blob URL
+ */
+async function processFilesForZip(files, progressFill, progressText, progressCount, progressTime, startTime) {
+  const JSZip = (window.JZip || window.JSZip);
+  if (!JSZip) {
+    throw new Error('JSZip 库未加载，请刷新页面重试');
+  }
+
+  const zip = new JSZip();
+  const today = new Date().toISOString().split('T')[0];
+  let successCount = 0;
+  let failCount = 0;
+
+  progressText.textContent = `找到 ${files.length} 个文件，正在读取...`;
+
+  // 批量处理文件
+  const batchSize = 50;
+  for (let i = 0; i < files.length; i += batchSize) {
+    const batch = files.slice(i, Math.min(i + batchSize, files.length));
+    const batchNum = Math.floor(i / batchSize) + 1;
+    const totalBatches = Math.ceil(files.length / batchSize);
+
+    progressText.textContent = `处理批次 ${batchNum}/${totalBatches}...`;
+
+    for (const item of batch) {
+      try {
+        // 直接从文件系统读取文件内容
+        const file = await item.handle.getFile();
+        const content = await file.text();
+
+        const filename = item.name;
+        zip.file(filename, content);
+        successCount++;
+      } catch (err) {
+        console.error(`Failed to read file:`, item, err);
+        failCount++;
+      }
+    }
+
+    const progress = Math.round(((i + batch.length) / files.length) * 100);
+    progressFill.style.width = `${progress}%`;
+    progressCount.textContent = `${i + batch.length}/${files.length}`;
+  }
+
+  progressText.textContent = '正在压缩...';
+  progressFill.style.width = '100%';
+
+  const zipBlob = await zip.generateAsync({ type: 'blob' });
+  const zipUrl = URL.createObjectURL(zipBlob);
+
+  const downloadFileName = `network-capture-${today}.zip`;
+
+  try {
+    await chrome.downloads.download({
+      url: zipUrl,
+      filename: downloadFileName,
+      saveAs: true
+    });
+  } finally {
+    URL.revokeObjectURL(zipUrl);
+  }
+
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  const sizeKB = (zipBlob.size / 1024).toFixed(0);
+
+  progressText.innerHTML = `✅ 打包完成！<br>成功：${successCount} | 失败：${failCount}<br>ZIP 大小：${sizeKB} KB | 耗时：${elapsed}s`;
+  progressTime.textContent = elapsed + 's';
+}
+
+// 绑定 ZIP 打包按钮事件
+if (packTodayBtn) {
+  packTodayBtn.addEventListener('click', packTodayData);
+}
