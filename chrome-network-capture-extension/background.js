@@ -1360,6 +1360,9 @@ async function init() {
     await reinjectContentScripts();
   }
   broadcastState();
+
+  // 初始化 Side Panel
+  await initSidePanel();
 }
 
 chrome.runtime.onInstalled.addListener(async () => {
@@ -1492,6 +1495,36 @@ chrome.commands.onCommand.addListener(async (command) => {
     await setCaptureEnabled(!settings.capture_enabled);
   }
 });
+
+/*
+ * Side Panel 支持 (Chrome 114+)
+ * 点击扩展图标时打开侧边栏面板，避免下载时遮挡问题
+ */
+
+// 检测 Side Panel API 可用性
+function isSidePanelAvailable() {
+  return typeof chrome?.sidePanel?.setPanelBehavior === 'function';
+}
+
+// 初始化 Side Panel 行为
+async function initSidePanel() {
+  if (!isSidePanelAvailable()) {
+    logWarn('Side Panel API 不可用（需要 Chrome 114+），将使用默认 popup 模式');
+    return;
+  }
+
+  try {
+    // 设置点击扩展图标时打开 Side Panel
+    await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
+    logInfo('Side Panel 已启用：点击扩展图标将打开侧边栏面板');
+  } catch (error) {
+    logWarn(`设置 Side Panel 行为失败: ${error.message}`);
+  }
+}
+
+// 注意：不再使用 chrome.action.onClicked，因为 manifest.json 中配置了 default_popup
+// 点击扩展图标会打开 Popup，用户可以在 Popup 中点击"打开侧边栏"按钮
+// 这样更兼容，用户可以自由选择使用 Popup 或 Side Panel
 
 // popup/options/content script 消息通道
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {

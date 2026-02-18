@@ -3,19 +3,22 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Network Capture</title>
-    <link rel="stylesheet" href="popup.css" />
+    <title>网络请求捕获 - 侧边栏</title>
+    <link rel="stylesheet" href="sidepanel.css" />
     <!-- 引入 JSZip 库 -->
     <script src="../lib/jszip.min.js"></script>
   </head>
   <body>
-    <main class="container">
-      <header class="header">
+    <main class="sidepanel-container">
+      <header class="sidepanel-header">
         <div class="header-left">
           <h1>网络请求捕获</h1>
           <p id="statusText" class="status status-off">状态：未开启</p>
         </div>
-        <button id="optionsBtn" class="settings-btn" title="打开设置">⚙️</button>
+        <div class="header-actions">
+          <button id="refreshBtn" class="icon-btn" title="刷新状态">🔄</button>
+          <button id="optionsBtn" class="icon-btn" title="打开设置">⚙️</button>
+        </div>
       </header>
 
       <section class="card">
@@ -66,15 +69,17 @@
         <button id="downloadScriptBtn" class="btn ghost">生成压缩包</button>
       </section>
 
-      <!-- 提示信息 -->
-      <section class="info-banner" id="infoBanner" style="display: none;">
-        <p>💡 提示：下载时面板会被遮挡</p>
-        <button id="openSidePanelBtn" class="btn small primary">打开侧边栏</button>
+      <section class="info-section">
+        <div class="info-card">
+          <h3>💡 Side Panel 模式</h3>
+          <p>您的浏览器支持侧边栏模式，监控面板固定在侧边，下载时不会被遮挡。</p>
+          <p class="version-info" id="chromeVersion"></p>
+        </div>
       </section>
 
       <p id="message" class="message"></p>
     </main>
 
-    <script src="popup.js"></script>
+    <script src="sidepanel.js"></script>
   </body>
 </html>

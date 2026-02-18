@@ -1,3 +1,8 @@
+/*
+ * Side Panel 模式 - 不会受到下载进度条遮挡
+ * 适用于 Chrome 114+ 浏览器
+ */
+
 const statusTextEl = document.getElementById('statusText');
 const ruleCountValueEl = document.getElementById('ruleCountValue');
 const rulePreviewValueEl = document.getElementById('rulePreviewValue');
@@ -8,12 +13,12 @@ const capturedRequestsEl = document.getElementById('capturedRequests');
 const errorCountEl = document.getElementById('errorCount');
 const lastCaptureEl = document.getElementById('lastCapture');
 const messageEl = document.getElementById('message');
-const infoBanner = document.getElementById('infoBanner');
-const openSidePanelBtn = document.getElementById('openSidePanelBtn');
+const chromeVersionEl = document.getElementById('chromeVersion');
 
 const toggleBtn = document.getElementById('toggleBtn');
 const clearBtn = document.getElementById('clearBtn');
 const optionsBtn = document.getElementById('optionsBtn');
+const refreshBtn = document.getElementById('refreshBtn');
 const openFolderBtn = document.getElementById('openFolderBtn');
 const downloadScriptBtn = document.getElementById('downloadScriptBtn');
 
@@ -26,63 +31,22 @@ let latestState = null;
 let hoverTimer = null;
 let isHoverCard = false;
 
-// 检测 Side Panel API 可用性
-function isSidePanelAvailable() {
-  return typeof chrome?.sidePanel?.open === 'function';
-}
-
-// 检测 Chrome 版本
-function getChromeVersion() {
+// 检测并显示 Chrome 版本
+function detectChromeVersion() {
   const userAgent = navigator.userAgent;
   const match = userAgent.match(/Chrome\/(\d+\.\d+\.\d+\.\d+)/);
   if (match) {
-    return parseInt(match[1].split('.')[0], 10);
-  }
-  return null;
-}
+    const version = match[1];
+    const majorVersion = parseInt(version.split('.')[0], 10);
+    chromeVersionEl.textContent = `Chrome 版本: ${version} (支持 Side Panel API)`;
 
-// 显示 Side Panel 提示
-function showSidePanelBanner() {
-  const chromeVersion = getChromeVersion();
-  if (chromeVersion && chromeVersion >= 114) {
-    // Chrome 114+ 支持 Side Panel
-    infoBanner.style.display = 'block';
-  } else if (chromeVersion) {
-    // 旧版本提示用户升级
-    infoBanner.innerHTML = `
-      <p>💡 提示：下载时面板会被遮挡</p>
-      <p style="font-size: 11px; color: var(--muted);">升级到 Chrome 114+ 可使用侧边栏模式</p>
-    `;
-    infoBanner.style.display = 'block';
-  }
-}
-
-// 打开 Side Panel
-async function openSidePanel() {
-  if (!isSidePanelAvailable()) {
-    setMessage('您的浏览器不支持 Side Panel API', true);
-    return;
-  }
-
-  try {
-    // 获取当前活动标签页
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (tab?.id) {
-      await chrome.sidePanel.open({ tabId: tab.id });
-
-      // 延迟关闭 Popup，给用户一点视觉反馈
-      setTimeout(() => {
-        window.close();
-      }, 300);
+    if (majorVersion < 114) {
+      chromeVersionEl.textContent += ' - 注意：Side Panel API 需要 Chrome 114+';
+      chromeVersionEl.style.color = 'var(--danger)';
     }
-  } catch (error) {
-    setMessage(`打开侧边栏失败: ${error.message}`, true);
+  } else {
+    chromeVersionEl.textContent = '无法检测 Chrome 版本';
   }
-}
-
-// 绑定 Side Panel 按钮
-if (openSidePanelBtn) {
-  openSidePanelBtn.addEventListener('click', openSidePanel);
 }
 
 function setMessage(text, isError = false) {
@@ -216,11 +180,15 @@ function render(state) {
 }
 
 async function requestState() {
-  const res = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
-  if (!res?.ok) {
-    throw new Error(res?.error || '获取状态失败');
+  try {
+    const res = await chrome.runtime.sendMessage({ type: 'GET_STATE' });
+    if (!res?.ok) {
+      throw new Error(res?.error || '获取状态失败');
+    }
+    render(res.payload);
+  } catch (error) {
+    setMessage(error.message, true);
   }
-  render(res.payload);
 }
 
 toggleBtn.addEventListener('click', async () => {
@@ -255,6 +223,22 @@ clearBtn.addEventListener('click', async () => {
 
 optionsBtn.addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
+});
+
+refreshBtn.addEventListener('click', async () => {
+  refreshBtn.disabled = true;
+  refreshBtn.textContent = '⏳';
+  try {
+    await requestState();
+    setMessage('状态已刷新');
+  } catch (error) {
+    setMessage(error.message, true);
+  } finally {
+    setTimeout(() => {
+      refreshBtn.disabled = false;
+      refreshBtn.textContent = '🔄';
+    }, 500);
+  }
 });
 
 openFolderBtn.addEventListener('click', async () => {
@@ -487,11 +471,12 @@ chrome.runtime.onMessage.addListener((message) => {
 });
 
 // 初始化
+detectChromeVersion();
 requestState().catch((error) => setMessage(error.message, true));
-showSidePanelBanner();
 
+// Side Panel 模式下轮询间隔更长（2秒），因为不会因为下载而关闭
 setInterval(() => {
   requestState().catch(() => {
-    // popup 关闭或 service worker 暂时休眠时静默忽略
+    // Side Panel 关闭或 service worker 暂时休眠时静默忽略
   });
-}, 1500);
+}, 2000);
