@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Network Capture 设置</title>
     <link rel="stylesheet" href="options.css" />
+    <script src="../lib/jszip.min.js"></script>
   </head>
   <body>
     <main class="page">
@@ -84,10 +85,18 @@
         </div>
       </section>
 
+      <section class="panel">
+        <h2>数据打包</h2>
+        <p class="hint">手动选择任意捕获数据文件夹，直接打包为 ZIP。</p>
+        <div class="actions">
+          <button id="packCustomFolderBtn" class="btn primary" type="button">自定义选择文件夹打包</button>
+        </div>
+      </section>
+
       <section class="actions">
         <button id="stopCaptureBtn" class="btn ghost" type="button">先停止捕获</button>
         <button id="saveBtn" class="btn primary" type="button">保存设置</button>
-        <button id="reloadBtn" class="btn" type="button">重新加载</button>
+        <button id="reloadBtn" class="btn" type="button">从后台重新加载设置</button>
       </section>
 
       <p id="status" class="status"></p>

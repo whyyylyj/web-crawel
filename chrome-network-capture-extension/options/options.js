@@ -25,6 +25,7 @@ const openShortcutsBtn = document.getElementById('openShortcuts');
 const exportSettingsBtn = document.getElementById('exportSettingsBtn');
 const importSettingsBtn = document.getElementById('importSettingsBtn');
 const importSettingsFileEl = document.getElementById('importSettingsFile');
+const packCustomFolderBtn = document.getElementById('packCustomFolderBtn');
 const statusEl = document.getElementById('status');
 
 const RULE_GROUPS = {
@@ -639,6 +640,150 @@ chrome.runtime.onMessage.addListener((message) => {
     }
   }
 });
+
+// ========== ZIP 打包自定义文件夹功能 ==========
+
+/**
+ * Normalize path separators (Windows/Unix compatible)
+ */
+function normalizePath(path) {
+  if (!path) return '';
+  return path.replace(/\\/g, '/');
+}
+
+/**
+ * Extract filename from full path
+ */
+function extractFilename(fullPath) {
+  if (!fullPath) return '';
+  const normalized = normalizePath(fullPath);
+  const parts = normalized.split('/');
+  return parts[parts.length - 1] || '';
+}
+
+/**
+ * Check if file is a network capture JSON file
+ * Filename format: {HHmmss}_{METHOD}_{HOST}_..._{STATUS}_{HASH}.json
+ */
+function isCaptureFile(filename) {
+  if (!filename) return false;
+  const basename = extractFilename(filename);
+  // Must end with .json
+  if (!basename.match(/\.json$/i)) return false;
+  // Must start with 6-digit timestamp + underscore + HTTP method
+  if (!basename.match(/^\d{6}_[a-z]+_/)) return false;
+  return true;
+}
+
+/**
+ * Process files and create ZIP
+ */
+async function processFilesForZip(files, progressFn) {
+  const JSZip = (window.JZip || window.JSZip);
+  if (!JSZip) {
+    throw new Error('JSZip 库未加载');
+  }
+
+  const zip = new JSZip();
+  const today = new Date().toISOString().split('T')[0];
+  let successCount = 0;
+  let failCount = 0;
+
+  // 批量处理文件
+  const batchSize = 50;
+  for (let i = 0; i < files.length; i += batchSize) {
+    const batch = files.slice(i, Math.min(i + batchSize, files.length));
+    
+    for (const item of batch) {
+      try {
+        const file = await item.handle.getFile();
+        const content = await file.text();
+        const filename = item.name;
+        zip.file(filename, content);
+        successCount++;
+      } catch (err) {
+        console.error(`Failed to read file:`, item, err);
+        failCount++;
+      }
+    }
+
+    if (progressFn) {
+      progressFn(i + batch.length, files.length, successCount, failCount);
+    }
+  }
+
+  const zipBlob = await zip.generateAsync({ type: 'blob' });
+  const zipUrl = URL.createObjectURL(zipBlob);
+
+  const downloadFileName = `network-capture-${today}.zip`;
+
+  try {
+    await chrome.downloads.download({
+      url: zipUrl,
+      filename: downloadFileName,
+      saveAs: true
+    });
+  } finally {
+    URL.revokeObjectURL(zipUrl);
+  }
+
+  return { successCount, failCount, zipBlob };
+}
+
+/**
+ * Pack custom folder data into ZIP
+ */
+async function packCustomFolderData() {
+  const btn = packCustomFolderBtn;
+  if (!btn) return;
+
+  const startTime = Date.now();
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '⏳ 正在选择文件夹...';
+
+  try {
+    const dirHandle = await window.showDirectoryPicker();
+    btn.textContent = '⏳ 正在读取文件夹...';
+
+    const files = [];
+    for await (const entry of dirHandle.values()) {
+      if (entry.kind === 'file' && isCaptureFile(entry.name)) {
+        files.push({ name: entry.name, handle: entry });
+      }
+    }
+
+    if (files.length === 0) {
+      throw new Error('该文件夹中没有捕获数据文件');
+    }
+
+    btn.textContent = `⏳ 找到 ${files.length} 个文件，正在打包...`;
+
+    const result = await processFilesForZip(files, (current, total, success, fail) => {
+      btn.textContent = `⏳ 打包中 ${current}/${total}...`;
+    });
+
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    const sizeKB = (result.zipBlob.size / 1024).toFixed(0);
+
+    setStatus(`✅ 打包完成！成功：${result.successCount} | 失败：${result.failCount} | ZIP 大小：${sizeKB} KB | 耗时：${elapsed}s`, 'ok');
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      setStatus('用户已取消文件夹选择', 'normal');
+    } else {
+      setStatus(`打包失败：${err.message}`, 'error');
+      console.error('Pack custom folder error:', err);
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+}
+
+// 绑定自定义打包按钮事件
+if (packCustomFolderBtn) {
+  packCustomFolderBtn.addEventListener('click', packCustomFolderData);
+}
 
 async function initOptionsPage() {
   const stopped = await stopCaptureIfNeeded();
