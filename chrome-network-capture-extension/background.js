@@ -25,7 +25,9 @@ const DEFAULT_SETTINGS = {
   capture_performance_data: false,
   max_body_length: 20_000_000, // 默认 20MB (约 2000万字符)
   // 安全优化：默认不持久化 body 预览到 storage.local（避免敏感数据落盘）
-  persist_body_preview: false
+  persist_body_preview: false,
+  // 瀑布图最大保留条数（侧边栏内存池上限，可在设置页调整）
+  waterfall_max_records: 50
 };
 
 const DEFAULT_STATS = {
@@ -188,7 +190,11 @@ function sanitizeSettings(raw = {}) {
     persist_body_preview:
       raw.persist_body_preview === undefined
         ? DEFAULT_SETTINGS.persist_body_preview
-        : Boolean(raw.persist_body_preview)
+        : Boolean(raw.persist_body_preview),
+    waterfall_max_records:
+      raw.waterfall_max_records === undefined
+        ? DEFAULT_SETTINGS.waterfall_max_records
+        : Math.min(500, Math.max(10, Number(raw.waterfall_max_records) || DEFAULT_SETTINGS.waterfall_max_records))
   };
 
   safe.url_filter_rules = normalizeUrlRules(raw.url_filter_rules, raw.url_filter_regex);
@@ -843,7 +849,7 @@ function getStatePayload() {
     // 提供当前生效规则数，避免 popup/options 重复计算
     active_rule_count: compiledIncludeRules.length,
     active_exclude_rule_count: compiledExcludeRules.length,
-    recent_records: records.slice(-5).reverse()
+    recent_records: records.slice(-Math.max(50, settings.waterfall_max_records || 50)).reverse()
   };
 }
 
@@ -1441,7 +1447,8 @@ chrome.webRequest.onBeforeSendHeaders.addListener(
     }
   },
   { urls: ['<all_urls>'] },
-  ['requestHeaders']
+  // extraHeaders 允许捕获 Cookie、Authorization 等浏览器默认屏蔽的敏感头
+  ['requestHeaders', 'extraHeaders']
 );
 
 chrome.webRequest.onHeadersReceived.addListener(

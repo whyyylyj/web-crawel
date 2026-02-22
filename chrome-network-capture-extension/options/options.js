@@ -7,6 +7,7 @@ const captureResponseDataEl = document.getElementById('captureResponseData');
 const capturePerformanceDataEl = document.getElementById('capturePerformanceData');
 const ignoreStaticResourcesEl = document.getElementById('ignoreStaticResources');
 const maxBodyLengthEl = document.getElementById('maxBodyLength');
+const waterfallMaxRecordsEl = document.getElementById('waterfallMaxRecords');
 
 const includeRuleListEl = document.getElementById('ruleList');
 const includeRuleCountEl = document.getElementById('ruleCount');
@@ -366,7 +367,8 @@ function buildCurrentSettingsPayload() {
     capture_request_data: captureRequestDataEl.checked,
     capture_response_data: captureResponseDataEl.checked,
     capture_performance_data: capturePerformanceDataEl.checked,
-    max_body_length: Number(maxBodyLengthEl.value) || 20_000_000
+    max_body_length: Number(maxBodyLengthEl.value) || 20_000_000,
+    waterfall_max_records: Math.min(500, Math.max(10, Number(waterfallMaxRecordsEl.value) || 50))
   };
 }
 
@@ -379,6 +381,7 @@ function applySettingsToForm(settings) {
   capturePerformanceDataEl.checked = Boolean(settings.capture_performance_data);
   ignoreStaticResourcesEl.checked = Boolean(settings.ignore_static_resources);
   maxBodyLengthEl.value = settings.max_body_length || 20_000_000;
+  waterfallMaxRecordsEl.value = settings.waterfall_max_records || 50;
 
   renderRules('include');
   renderRules('exclude');

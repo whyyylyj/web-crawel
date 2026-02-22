@@ -66,6 +66,12 @@
           <input id="maxBodyLength" type="number" step="1000" placeholder="默认 20,000,000" />
           <small>防止内存溢出。20,000,000 约 20MB。超过此长度的内容将被截断。</small>
         </label>
+
+        <label class="field mt-10">
+          <span>瀑布图最大保留条数</span>
+          <input id="waterfallMaxRecords" type="number" min="10" max="500" step="10" placeholder="默认 50" />
+          <small>侧边栏瀑布图最多展示的请求条数（10 ~ 500）。超出后自动丢弃最旧记录。</small>
+        </label>
       </section>
 
       <section class="panel">

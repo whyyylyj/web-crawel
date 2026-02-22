@@ -21,80 +21,125 @@
         </div>
       </header>
 
-      <section class="card">
-        <div class="row">
-          <span>生效规则数</span>
-          <code id="ruleCountValue">0</code>
-        </div>
-        <div class="row">
-          <span>规则预览</span>
-          <code id="rulePreviewValue">(未设置)</code>
-        </div>
-        <div class="row">
-          <span>保存路径</span>
-          <code id="savePathValue">下载目录根路径</code>
-        </div>
-      </section>
+      <!-- Tab 导航 -->
+      <nav class="tab-nav" role="tablist">
+        <button class="tab-btn active" data-tab="overview" role="tab" aria-selected="true">概览</button>
+        <button class="tab-btn" data-tab="waterfall" role="tab" aria-selected="false">
+          瀑布图
+          <span id="waterfallBadge" class="tab-badge" style="display:none">0</span>
+        </button>
+      </nav>
 
-      <section class="card stats" id="statsCard">
-        <h2>实时统计</h2>
-        <div class="stats-grid">
-          <div class="item"><span>总请求</span><strong id="totalRequests">0</strong></div>
-          <div class="item"><span>匹配请求</span><strong id="matchedRequests">0</strong></div>
-          <div class="item"><span>已记录</span><strong id="capturedRequests">0</strong></div>
-          <div class="item"><span>错误数</span><strong id="errorCount">0</strong></div>
-        </div>
-        <p class="muted" id="lastCapture">最近捕获：-</p>
+      <!-- ===== Tab: 概览 ===== -->
+      <div id="tab-overview" class="tab-panel active">
+        <section class="card">
+          <div class="row">
+            <span>生效规则数</span>
+            <code id="ruleCountValue">0</code>
+          </div>
+          <div class="row">
+            <span>规则预览</span>
+            <code id="rulePreviewValue">(未设置)</code>
+          </div>
+          <div class="row">
+            <span>保存路径</span>
+            <code id="savePathValue">下载目录根路径</code>
+          </div>
+        </section>
 
-        <!-- Hover 统计浮层 -->
-        <div id="statsHoverCard" class="stats-hover-card">
-          <div class="stats-hover-content">
-            <div class="stats-hover-header">
-              <h3>📊 规则统计</h3>
-              <div class="stats-hover-loading" id="statsLoading">
-                <span class="loading-spinner"></span>
+        <section class="card stats" id="statsCard">
+          <h2>实时统计</h2>
+          <div class="stats-grid">
+            <div class="item"><span>总请求</span><strong id="totalRequests">0</strong></div>
+            <div class="item"><span>匹配请求</span><strong id="matchedRequests">0</strong></div>
+            <div class="item"><span>已记录</span><strong id="capturedRequests">0</strong></div>
+            <div class="item"><span>错误数</span><strong id="errorCount">0</strong></div>
+          </div>
+          <p class="muted" id="lastCapture">最近捕获：-</p>
+
+          <!-- Hover 统计浮层 -->
+          <div id="statsHoverCard" class="stats-hover-card">
+            <div class="stats-hover-content">
+              <div class="stats-hover-header">
+                <h3>📊 规则统计</h3>
+                <div class="stats-hover-loading" id="statsLoading">
+                  <span class="loading-spinner"></span>
+                </div>
+              </div>
+              <div id="ruleStatsHoverContent" class="stats-hover-body">
+                <!-- 统计数据将在这里渲染 -->
               </div>
             </div>
-            <div id="ruleStatsHoverContent" class="stats-hover-body">
-              <!-- 统计数据将在这里渲染 -->
-            </div>
+          </div>
+        </section>
+
+        <section class="actions">
+          <button id="toggleBtn" class="btn primary">开启捕获</button>
+          <button id="clearBtn" class="btn danger">清空数据</button>
+          <button id="openFolderBtn" class="btn ghost">📂 打开文件夹</button>
+          <button id="packTodayBtn" class="btn primary highlight">📦 打包今日数据</button>
+
+          <!-- 备用方案（折叠） -->
+          <details class="fallback-section">
+            <summary>备用方案</summary>
+            <button id="downloadScriptBtn" class="btn ghost small">生成压缩脚本</button>
+          </details>
+        </section>
+
+        <!-- 进度提示卡片 -->
+        <div id="packProgress" class="progress-card" style="display: none;">
+          <h3>正在打包数据...</h3>
+          <div class="progress-bar">
+            <div id="progressFill" class="progress-fill"></div>
+          </div>
+          <p id="progressText">准备中...</p>
+          <div class="progress-stats">
+            <span id="progressCount">0/0</span>
+            <span id="progressTime">0.0s</span>
           </div>
         </div>
-      </section>
 
-      <section class="actions">
-        <button id="toggleBtn" class="btn primary">开启捕获</button>
-        <button id="clearBtn" class="btn danger">清空数据</button>
-        <button id="openFolderBtn" class="btn ghost">📂 打开文件夹</button>
-        <button id="packTodayBtn" class="btn primary highlight">📦 打包今日数据</button>
+        <section class="info-section">
+          <div class="info-card">
+            <h3>💡 Side Panel 模式</h3>
+            <p>您的浏览器支持侧边栏模式，监控面板固定在侧边，下载时不会被遮挡。</p>
+            <p class="version-info" id="chromeVersion"></p>
+          </div>
+        </section>
+      </div>
 
-        <!-- 备用方案（折叠） -->
-        <details class="fallback-section">
-          <summary>备用方案</summary>
-          <button id="downloadScriptBtn" class="btn ghost small">生成压缩脚本</button>
-        </details>
-      </section>
-
-      <!-- 进度提示卡片 -->
-      <div id="packProgress" class="progress-card" style="display: none;">
-        <h3>正在打包数据...</h3>
-        <div class="progress-bar">
-          <div id="progressFill" class="progress-fill"></div>
+      <!-- ===== Tab: 瀑布图 ===== -->
+      <div id="tab-waterfall" class="tab-panel">
+        <div class="waterfall-toolbar">
+          <input id="waterfallSearch" class="waterfall-search" type="text"
+            placeholder="过滤 URL / 方法 / 状态码…" autocomplete="off" />
+          <button id="clearWaterfallBtn" class="btn ghost small">清空</button>
         </div>
-        <p id="progressText">准备中...</p>
-        <div class="progress-stats">
-          <span id="progressCount">0/0</span>
-          <span id="progressTime">0.0s</span>
+        <div class="waterfall-legend">
+          <span class="legend-item"><span class="legend-dot dot-2xx"></span>2xx</span>
+          <span class="legend-item"><span class="legend-dot dot-3xx"></span>3xx</span>
+          <span class="legend-item"><span class="legend-dot dot-4xx"></span>4xx</span>
+          <span class="legend-item"><span class="legend-dot dot-5xx"></span>5xx</span>
+          <span class="legend-item"><span class="legend-dot dot-pending"></span>pending</span>
+        </div>
+        <div id="waterfallList" class="waterfall-list" role="list">
+          <div class="waterfall-empty">暂无捕获记录，开启捕获后会在此展示</div>
         </div>
       </div>
 
-      <section class="info-section">
-        <div class="info-card">
-          <h3>💡 Side Panel 模式</h3>
-          <p>您的浏览器支持侧边栏模式，监控面板固定在侧边，下载时不会被遮挡。</p>
-          <p class="version-info" id="chromeVersion"></p>
-        </div>
-      </section>
+      <!-- 右键浮层菜单（全局唯一） -->
+      <div id="ctxMenu" class="ctx-menu" style="display:none" role="menu" aria-label="请求操作">
+        <button class="ctx-item" id="ctxCopyCurl" role="menuitem">
+          <span class="ctx-icon">⌨️</span>复制为 cURL
+        </button>
+        <button class="ctx-item" id="ctxCopyFetch" role="menuitem">
+          <span class="ctx-icon">📦</span>复制为 fetch()
+        </button>
+        <div class="ctx-divider"></div>
+        <button class="ctx-item" id="ctxCopyUrl" role="menuitem">
+          <span class="ctx-icon">🔗</span>复制 URL
+        </button>
+      </div>
 
       <p id="message" class="message"></p>
     </main>

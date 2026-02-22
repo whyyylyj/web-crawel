@@ -19,3 +19,8 @@ chrome-network-capture-extension/PERFORMANCE_OPTIMIZATION_V1.2.0.md
 chrome-network-capture-extension/ZIP_PACKING_IMPLEMENTATION_PLAN.md
 chrome-network-capture-extension/performance-test.html
 chrome-network-capture-extension/test-sidepanel.html
+
+# AI 工具文档和技能文件
+ATLASSIAN_INTEGRATION.md
+CONTEXT7_MCP.md
+qwen-web-search.skill
